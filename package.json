@@ -1,0 +1,26 @@
+{
+  "name": "inventory-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "lint": "echo \"Add your favorite linter here\""
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.8",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.17.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "@vitejs/plugin-react": "^4.0.0",
+    "tailwindcss": "^3.3.0",
+    "@tailwindcss/forms": "^0.5.4",
+    "@tailwindcss/typography": "^0.5.9",
+    "postcss": "^8.4.21",
+    "autoprefixer": "^10.4.14"
+  }
+}
