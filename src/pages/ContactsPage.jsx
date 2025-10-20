@@ -1,6 +1,7 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient";
 import { projectDefinitions } from "../data/dispenserComponents";
+import WltLogoMark from "../components/WltLogoMark";
 
 const initialForm = {
   type: "cliente",
@@ -209,7 +210,10 @@ export default function ContactsPage() {
     <div className="space-y-6">
       <section className="rounded-xl bg-white p-6 shadow-sm">
         <div className="flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-slate-800">Clientes e Fornecedores</h1>
+          <div className="flex items-center gap-3">
+            <WltLogoMark className="h-10 w-auto" title="Logo WLT" />
+            <h1 className="text-xl font-semibold text-slate-800">Clientes e Fornecedores</h1>
+          </div>
           {editingId && (
             <button
               type="button"

@@ -1,6 +1,7 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient";
 import { projectDefinitions } from "../data/dispenserComponents";
+import WltLogoMark from "../components/WltLogoMark";
 
 const initialForm = {
   nfe: "",
@@ -32,7 +33,46 @@ export default function OrdersPage() {
     }, {});
   }, [contacts]);
 
+  const clientContacts = useMemo(() => {
+    return contacts.filter((contact) => {
+      const type = typeof contact.tipo === "string" ? contact.tipo.toLowerCase() : "";
+      return type.includes("cliente");
+    });
+  }, [contacts]);
+
   const selectedContact = form.contatoId ? contactMap[form.contatoId] : null;
+
+  const nextNfeNumber = useMemo(() => {
+    const numericNfes = orders.reduce((acc, order) => {
+      const nfeString = String(order.nfe ?? "").trim();
+      if (/^\d+$/.test(nfeString)) {
+        acc.push(Number.parseInt(nfeString, 10));
+      }
+      return acc;
+    }, []);
+
+    if (numericNfes.length === 0) return 1;
+    return Math.max(...numericNfes) + 1;
+  }, [orders]);
+
+  useEffect(() => {
+    setForm((prev) => {
+      const current = typeof prev.nfe === "string" ? prev.nfe.trim() : "";
+
+      if (!current) {
+        return { ...prev, nfe: String(nextNfeNumber) };
+      }
+
+      if (/^\d+$/.test(current)) {
+        const currentNumber = Number.parseInt(current, 10);
+        if (Number.isFinite(currentNumber) && currentNumber < nextNfeNumber) {
+          return { ...prev, nfe: String(nextNfeNumber) };
+        }
+      }
+
+      return prev;
+    });
+  }, [nextNfeNumber]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -181,7 +221,19 @@ export default function OrdersPage() {
     event.preventDefault();
 
     if (!form.nfe.trim() || !form.contatoId) {
-      alert("Informe a NFE e selecione o cliente.");
+      alert("Informe o numero do pedido e selecione o cliente.");
+      return;
+    }
+
+    const trimmedNfe = form.nfe.trim();
+    if (!/^\d+$/.test(trimmedNfe)) {
+      alert("O numero do pedido deve conter apenas numeros sequenciais.");
+      return;
+    }
+
+    const nfeNumber = Number.parseInt(trimmedNfe, 10);
+    if (!Number.isFinite(nfeNumber) || nfeNumber !== nextNfeNumber) {
+      alert(`O proximo numero de pedido disponivel e ${nextNfeNumber}.`);
       return;
     }
 
@@ -194,7 +246,7 @@ export default function OrdersPage() {
     }
 
     const payload = {
-      nfe: form.nfe.trim(),
+      nfe: trimmedNfe,
       contato_id: form.contatoId,
       contato_nome: contact?.nome ?? "",
       quantidade: Number(form.quantidade) || 0,
@@ -238,14 +290,17 @@ export default function OrdersPage() {
   return (
     <div className="space-y-6">
       <section className="rounded-xl bg-white p-6 shadow-sm">
-        <h1 className="text-xl font-semibold text-slate-800">Pedidos</h1>
+        <div className="flex items-center gap-3">
+          <WltLogoMark className="h-10 w-auto" title="Logo WLT" />
+          <h1 className="text-xl font-semibold text-slate-800">Pedidos</h1>
+        </div>
         <p className="text-sm text-slate-500">
           Registre as placas vendidas para cada cliente e acompanhe as datas de entrega e faturamento.
         </p>
 
         <form onSubmit={handleSubmit} className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           <label className="flex flex-col text-sm font-medium text-slate-600">
-            NFE / Pedido
+            Pedido
             <input
               type="text"
               value={form.nfe}
@@ -262,7 +317,7 @@ export default function OrdersPage() {
               className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
             >
               <option value="">Selecione um cliente</option>
-              {contacts.map((contact) => (
+              {clientContacts.map((contact) => (
                 <option key={contact.id} value={contact.id}>
                   {contact.nome}
                 </option>
@@ -369,14 +424,14 @@ export default function OrdersPage() {
           <div>
             <h2 className="text-lg font-semibold text-slate-800">Pedidos cadastrados</h2>
             <p className="text-sm text-slate-500">
-              Pesquise por NFE, cliente ou placa para localizar registros.
+              Pesquise por pedido, cliente ou placa para localizar registros.
             </p>
           </div>
           <input
             type="text"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
-            placeholder="Buscar por NFE, cliente, placa..."
+            placeholder="Buscar por pedido, cliente, placa..."
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40 sm:w-72"
           />
         </div>
@@ -390,7 +445,7 @@ export default function OrdersPage() {
             <table className="min-w-full divide-y divide-slate-200">
               <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 <tr>
-                  <th className="px-4 py-2 text-left">NFE</th>
+                  <th className="px-4 py-2 text-left">Pedido</th>
                   <th className="px-4 py-2 text-left">Cliente</th>
                   <th className="px-4 py-2 text-left">Placa</th>
                   <th className="px-4 py-2 text-right">Quantidade</th>

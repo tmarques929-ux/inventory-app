@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useInventory } from "../context/InventoryContext";
+import WltLogoMark from "../components/WltLogoMark";
 
 /**
  * InventoryList renders a table of all items currently in inventory. Items can
@@ -54,7 +55,10 @@ export default function InventoryList() {
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Estoque</h1>
+        <div className="flex items-center gap-3">
+          <WltLogoMark className="h-10 w-auto" title="Logo WLT" />
+          <h1 className="text-2xl font-semibold">Estoque</h1>
+        </div>
         <Link
           to="/inventory/new"
           className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"

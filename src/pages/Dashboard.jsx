@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useInventory } from "../context/InventoryContext";
 import { supabase } from "../supabaseClient";
-import heroBackground from "../assets/wlt-logo.svg";
+import WltLogoMark from "../components/WltLogoMark";
 import {
   dispenserProjectComponents,
   dispenserProjectMetadata,
@@ -1123,21 +1123,18 @@ const [selectedProjectId, setSelectedProjectId] = useState(
 
   return (
     <div className="space-y-8">
-      <div
-        className="relative overflow-hidden rounded-3xl text-white shadow-xl"
-        style={{
-          backgroundImage: `url(${heroBackground})`,
-          backgroundSize: "cover",
-          backgroundPosition: "center",
-        }}
-      >
-        <div className="absolute inset-0 bg-slate-900/70" aria-hidden />
-        <div className="relative z-10 space-y-4 p-8 sm:p-12">
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-sky-200">
-            {heroEyebrow}
-          </p>
-          <h1 className="text-3xl font-bold md:text-4xl">{heroTitle}</h1>
-          <p className="max-w-2xl text-sm text-slate-100 md:text-base">{heroSubtitle}</p>
+      <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm sm:p-12">
+        <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-4">
+            <WltLogoMark className="h-12 w-auto" title="Logo WLT" />
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.3em] text-sky-600">
+                {heroEyebrow}
+              </p>
+              <h1 className="text-3xl font-bold text-slate-900 md:text-4xl">{heroTitle}</h1>
+            </div>
+          </div>
+          <p className="max-w-xl text-sm text-slate-600 md:text-base">{heroSubtitle}</p>
         </div>
       </div>
 

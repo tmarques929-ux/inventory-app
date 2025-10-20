@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient";
+import WltLogoMark from "../components/WltLogoMark";
 
 const buildParcelArray = (count) =>
   Array.from({ length: count }, (_, index) => ({
@@ -370,7 +371,10 @@ export default function FinancialSchedule() {
       <section className="rounded-xl bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <h1 className="text-xl font-semibold text-slate-800">Agenda financeira</h1>
+            <div className="flex items-center gap-3">
+              <WltLogoMark className="h-10 w-auto" title="Logo WLT" />
+              <h1 className="text-xl font-semibold text-slate-800">Agenda financeira</h1>
+            </div>
             <p className="text-sm text-slate-500">
               Cadastre pagamentos a fornecedores e recebimentos de clientes para organizar o caixa dos proximos dias.
             </p>

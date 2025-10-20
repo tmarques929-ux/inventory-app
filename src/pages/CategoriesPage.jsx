@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useInventory } from '../context/InventoryContext';
+import WltLogoMark from '../components/WltLogoMark';
 
 /**
  * CategoriesPage allows users to view, add and remove categories. Categories
@@ -58,7 +59,10 @@ export default function CategoriesPage() {
 
   return (
     <div className="max-w-lg mx-auto">
-      <h1 className="text-2xl font-semibold mb-4">Categorias</h1>
+      <div className="mb-4 flex items-center gap-3">
+        <WltLogoMark className="h-10 w-auto" title="Logo WLT" />
+        <h1 className="text-2xl font-semibold">Categorias</h1>
+      </div>
       {error && <p className="text-red-600 mb-2">{error}</p>}
       <form onSubmit={editingId ? handleEdit : handleAdd} className="mb-6">
         <div className="flex items-center space-x-2">

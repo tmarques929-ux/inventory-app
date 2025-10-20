@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useInventory } from '../context/InventoryContext';
+import WltLogoMark from '../components/WltLogoMark';
 
 /**
  * InventoryForm handles creation and editing of items. When an `id` is provided
@@ -12,7 +13,6 @@ export default function InventoryForm() {
   const navigate = useNavigate();
   const {
     items,
-    categories,
     addItem,
     updateItem,
     fetchItems,
@@ -21,7 +21,6 @@ export default function InventoryForm() {
   const [formState, setFormState] = useState({
     name: '',
     description: '',
-    category_id: '',
     quantity: 0,
     location: '',
     currentPrice: '',
@@ -38,7 +37,6 @@ export default function InventoryForm() {
         setFormState({
           name: existing.name,
           description: existing.description || '',
-          category_id: existing.category_id || '',
           quantity: existing.quantity,
           location: existing.location || '',
           currentPrice:
@@ -92,9 +90,12 @@ export default function InventoryForm() {
 
   return (
     <div className="max-w-lg mx-auto">
-      <h1 className="text-2xl font-semibold mb-4">
-        {isEditMode ? 'Editar item' : 'Novo item'}
-      </h1>
+      <div className="mb-4 flex items-center gap-3">
+        <WltLogoMark className="h-10 w-auto" title="Logo WLT" />
+        <h1 className="text-2xl font-semibold">
+          {isEditMode ? 'Editar item' : 'Novo item'}
+        </h1>
+      </div>
       {error && <p className="text-red-600 mb-2">{error}</p>}
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
@@ -123,26 +124,6 @@ export default function InventoryForm() {
             rows="3"
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500"
           />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700" htmlFor="category">
-            Categoria
-          </label>
-          <select
-            id="category"
-            name="category_id"
-            value={formState.category_id}
-            onChange={handleChange}
-            required
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500"
-          >
-            <option value="">Selecione uma categoria</option>
-            {categories.map((cat) => (
-              <option key={cat.id} value={cat.id}>
-                {cat.name}
-              </option>
-            ))}
-          </select>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700" htmlFor="quantity">

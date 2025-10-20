@@ -2,9 +2,18 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 const linkBaseClasses =
-  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors";
+  "flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-colors";
 const linkInactiveClasses = "text-slate-500 hover:bg-slate-100 hover:text-slate-800";
 const linkActiveClasses = "bg-sky-100 text-sky-700 border border-sky-200";
+
+const navItems = [
+  { to: "/estoque", label: "Estoque", icon: "\u{1F4E6}" }, // package
+  { to: "/produtos", label: "Produtos", icon: "\u{1F9F7}" }, // puzzle piece
+  { to: "/inventory", label: "Itens cadastrados", icon: "\u{1F4C2}" }, // file cabinet
+  { to: "/pedidos", label: "Pedidos", icon: "\u{1F4DD}" }, // memo
+  { to: "/agenda-financeira", label: "Agenda financeira", icon: "\u{1F4B0}" }, // money bag
+  { to: "/contatos", label: "Clientes & Fornecedores", icon: "\u{1F91D}" }, // handshake
+];
 
 export default function SideNav({ collapsed = false, onToggle }) {
   const { user, signOut } = useAuth();
@@ -15,15 +24,24 @@ export default function SideNav({ collapsed = false, onToggle }) {
     navigate("/login");
   };
 
-  const renderLink = (to, label) => (
+  const renderLink = ({ to, label, icon }) => (
     <NavLink
       key={to}
       to={to}
+      title={label}
       className={({ isActive }) =>
-        [linkBaseClasses, isActive ? linkActiveClasses : linkInactiveClasses].join(" ")
+        [
+          linkBaseClasses,
+          collapsed ? "justify-center gap-0" : "gap-3",
+          isActive ? linkActiveClasses : linkInactiveClasses,
+        ].join(" ")
       }
     >
-      <span className="truncate">{label}</span>
+      <span className="text-lg leading-none" aria-hidden="true">
+        {icon}
+      </span>
+      {!collapsed && <span className="truncate">{label}</span>}
+      {collapsed && <span className="sr-only">{label}</span>}
     </NavLink>
   );
 
@@ -35,7 +53,7 @@ export default function SideNav({ collapsed = false, onToggle }) {
     >
       <div className="flex items-center justify-between gap-2 px-4 py-4">
         <span className="text-base font-semibold text-slate-700">
-          {collapsed ? "IA" : "Inventory App"}
+          {collapsed ? "WLT" : "WLT Automacao"}
         </span>
         {onToggle && (
           <button
@@ -50,12 +68,7 @@ export default function SideNav({ collapsed = false, onToggle }) {
       </div>
 
       <nav className="flex-1 space-y-2 px-3 py-4">
-        {renderLink("/estoque", "Estoque")}
-        {renderLink("/produtos", "Produtos")}
-        {renderLink("/inventory", "Itens cadastrados")}
-        {renderLink("/pedidos", "Pedidos")}
-        {renderLink("/agenda-financeira", "Agenda financeira")}
-        {renderLink("/contatos", "Clientes & Fornecedores")}
+        {navItems.map(renderLink)}
       </nav>
 
       {user && (
@@ -77,9 +90,3 @@ export default function SideNav({ collapsed = false, onToggle }) {
     </aside>
   );
 }
-
-
-
-
-
-
