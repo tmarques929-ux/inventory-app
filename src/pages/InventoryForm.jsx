@@ -24,6 +24,8 @@ export default function InventoryForm() {
     category_id: '',
     quantity: 0,
     location: '',
+    currentPrice: '',
+    lastPrice: '',
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -39,6 +41,14 @@ export default function InventoryForm() {
           category_id: existing.category_id || '',
           quantity: existing.quantity,
           location: existing.location || '',
+          currentPrice:
+            existing.currentPrice !== null && existing.currentPrice !== undefined
+              ? String(existing.currentPrice)
+              : '',
+          lastPrice:
+            existing.lastPrice !== null && existing.lastPrice !== undefined
+              ? String(existing.lastPrice)
+              : '',
         });
       }
     }
@@ -55,9 +65,16 @@ export default function InventoryForm() {
     setError('');
     try {
       // Convert quantity to integer
+      const parsePrice = (value) => {
+        if (value === '' || value === null || value === undefined) return null;
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? numeric : null;
+      };
       const payload = {
         ...formState,
         quantity: parseInt(formState.quantity, 10),
+        currentPrice: parsePrice(formState.currentPrice),
+        lastPrice: parsePrice(formState.lastPrice),
       };
       if (isEditMode) {
         await updateItem(id, payload);
@@ -141,6 +158,41 @@ export default function InventoryForm() {
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="block text-sm font-medium text-gray-700" htmlFor="lastPrice">
+              Ultimo preço pago (R$)
+            </label>
+            <input
+              id="lastPrice"
+              name="lastPrice"
+              type="number"
+              min="0"
+              step="0.01"
+              value={formState.lastPrice}
+              onChange={handleChange}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700" htmlFor="currentPrice">
+              Preço atual (R$)
+            </label>
+            <input
+              id="currentPrice"
+              name="currentPrice"
+              type="number"
+              min="0"
+              step="0.01"
+              value={formState.currentPrice}
+              onChange={handleChange}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+        </div>
+        <p className="text-xs text-gray-500">
+          Toda atualização de preço atual gera automaticamente um registro no histórico de valores.
+        </p>
         <div>
           <label className="block text-sm font-medium text-gray-700" htmlFor="location">
             Localização

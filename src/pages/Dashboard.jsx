@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useInventory } from "../context/InventoryContext";
+import { supabase } from "../supabaseClient";
 import heroBackground from "../assets/wlt-logo.svg";
 import {
   dispenserProjectComponents,
@@ -24,7 +25,7 @@ const cloneComponent = (component) => {
 const buildInitialProjectOption = (id, metadata, components) => ({
   id,
   name: metadata.name,
-  metadata: { ...metadata },
+  metadata: { ...metadata, projectValue: metadata.projectValue ?? 0 },
   components: components.map(cloneComponent),
 });
 
@@ -34,7 +35,7 @@ const INITIAL_PROJECT_OPTIONS = [
   buildInitialProjectOption("ntc", ntcProjectMetadata, ntcProjectComponents),
 ];
 
-const tabs = [
+const ALL_TABS = [
   { id: "projects", label: "Projetos" },
   { id: "stock", label: "Estoque" },
   { id: "history", label: "Historico estoque" },
@@ -48,20 +49,59 @@ const buildCatalog = (components) =>
     itemNumber: component.itemNumber ?? index + 1,
   }));
 
-export default function Dashboard() {
+export default function Dashboard({
+  allowedTabs,
+  heroEyebrow = "Central WLT",
+  heroTitle = "Hub de Projetos e Estoque",
+  heroSubtitle = "Visualize os componentes de cada projeto, acompanhe o estoque e organize o envio para montagem.",
+}) {
   const { items, loading, error, updateItem } = useInventory();
 
-  const [activeTab, setActiveTab] = useState("projects");
+  const allowedTabsKey = Array.isArray(allowedTabs) ? allowedTabs.join("|") : "all";
+  const allowedTabIds = useMemo(() => {
+    const requested = Array.isArray(allowedTabs) && allowedTabs.length
+      ? allowedTabs
+      : ALL_TABS.map((tab) => tab.id);
+    const normalized = requested.filter((id) => ALL_TABS.some((tab) => tab.id === id));
+    return normalized.length ? normalized : [ALL_TABS[0].id];
+  }, [allowedTabsKey]);
+
+  const [activeTab, setActiveTab] = useState(() => allowedTabIds[0] ?? ALL_TABS[0].id);
+  const allowedTabIdsKey = allowedTabIds.join("|");
+
+  useEffect(() => {
+    if (!allowedTabIds.includes(activeTab)) {
+      setActiveTab(allowedTabIds[0] ?? ALL_TABS[0].id);
+    }
+  }, [allowedTabIdsKey, allowedTabIds, activeTab]);
 
   const [projectOptions, setProjectOptions] = useState(() =>
     INITIAL_PROJECT_OPTIONS.map((project) => ({
       ...project,
-      metadata: { ...project.metadata },
+      metadata: { ...project.metadata, projectValue: project.metadata.projectValue ?? 0 },
       components: project.components.map(cloneComponent),
     })),
   );
 
-  const [selectedProjectId, setSelectedProjectId] = useState(
+  const availableTabs = useMemo(
+    () => ALL_TABS.filter((tab) => allowedTabIds.includes(tab.id)),
+    [allowedTabIdsKey],
+  );
+
+  const persistProjectValues = (projects) => {
+  if (typeof window === "undefined") return;
+  try {
+    const payload = projects.reduce((acc, project) => {
+      acc[project.id] = Number(project.metadata.projectValue ?? 0);
+      return acc;
+    }, {});
+    window.localStorage.setItem("inventory-app-project-values", JSON.stringify(payload));
+  } catch (err) {
+    console.error("Erro ao salvar valores de projetos", err);
+  }
+};
+
+const [selectedProjectId, setSelectedProjectId] = useState(
     INITIAL_PROJECT_OPTIONS[0]?.id ?? "dispenser",
   );
   const [isEditingProject, setIsEditingProject] = useState(false);
@@ -83,6 +123,8 @@ export default function Dashboard() {
   const [adjustFeedback, setAdjustFeedback] = useState({ type: null, message: "" });
   const [isUpdatingStock, setIsUpdatingStock] = useState(false);
   const [stockHistory, setStockHistory] = useState([]);
+  const [historyError, setHistoryError] = useState(null);
+  const [stockSearch, setStockSearch] = useState("");
 
   useEffect(() => {
     setProjectItems([]);
@@ -91,10 +133,55 @@ export default function Dashboard() {
   }, [selectedProjectId]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = window.localStorage.getItem("inventory-app-project-values");
+      if (!stored) return;
+      const parsed = JSON.parse(stored);
+      if (parsed && typeof parsed === "object") {
+        setProjectOptions((current) => {
+          const next = current.map((project) => ({
+            ...project,
+            metadata: {
+              ...project.metadata,
+              projectValue:
+                typeof parsed[project.id] === "number"
+                  ? parsed[project.id]
+                  : project.metadata.projectValue ?? 0,
+            },
+          }));
+          persistProjectValues(next);
+          return next;
+        });
+      }
+    } catch (err) {
+      console.error("Erro ao carregar valores de projetos", err);
+    }
+  }, []);
+
+  useEffect(() => {
     if (isEditingProject && editPanelRef.current) {
       editPanelRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
     }
   }, [isEditingProject]);
+
+  useEffect(() => {
+    const loadHistory = async () => {
+      try {
+        setHistoryError(null);
+        const { data, error } = await supabase
+          .from("historico_estoque")
+          .select("*")
+          .order("created_at", { ascending: false });
+        if (error) throw error;
+        setStockHistory(data ?? []);
+      } catch (err) {
+        setHistoryError(err);
+      }
+    };
+
+    loadHistory();
+  }, []);
 
   const nameIndex = useMemo(() => {
     const map = new Map();
@@ -130,17 +217,43 @@ export default function Dashboard() {
   
       <section className="rounded-xl bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="space-y-2">
+          <div className="flex-1 space-y-2">
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
               Projeto selecionado
             </p>
-            <h2 className="text-xl font-semibold text-slate-800">
-              {selectedProject.metadata.name}
-            </h2>
-            <p className="text-sm text-slate-500">
-              Cliente: {selectedProject.metadata.customer}.{" "}
-              {selectedProject.metadata.notes}
-            </p>
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-slate-800">
+                  {selectedProject.metadata.name}
+                </h2>
+                <p className="text-sm text-slate-500">
+                  Cliente: {selectedProject.metadata.customer}.{" "}
+                  {selectedProject.metadata.notes}
+                </p>
+                <p className="text-xs font-medium text-slate-500">
+                  Codigo placa pronta:{" "}
+                  <span className="font-semibold text-slate-700">
+                    {selectedProject.metadata.finishedBoardCode || "-"}
+                  </span>
+                </p>
+              </div>
+              <label className="flex flex-col text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                Valor atual (R$)
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={
+                    selectedProject.metadata.projectValue !== undefined &&
+                    selectedProject.metadata.projectValue !== null
+                      ? selectedProject.metadata.projectValue
+                      : 0
+                  }
+                  onChange={handleProjectValueChange}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-right text-xs text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40 lg:w-24"
+                />
+              </label>
+            </div>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <button
@@ -452,15 +565,22 @@ export default function Dashboard() {
       <section className="rounded-xl bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div>
-          <h2 className="text-xl font-semibold text-slate-800">
-            Estoque cadastrado
-          </h2>
-          <p className="text-sm text-slate-500">
-            Lista completa dos componentes.
-          </p>
+            <h2 className="text-xl font-semibold text-slate-800">
+              Estoque cadastrado
+            </h2>
+            <p className="text-sm text-slate-500">
+              Lista completa dos componentes.
+            </p>
+          </div>
+          <input
+            type="text"
+            value={stockSearch}
+            onChange={(event) => setStockSearch(event.target.value)}
+            placeholder="Buscar por codigo, nome ou descricao..."
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40 sm:w-80"
+          />
         </div>
-      </div>
-      <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 p-4">
+        <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 p-4">
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -560,8 +680,6 @@ export default function Dashboard() {
   );
 
   const renderHistoryTab = () => {
-    const orderedHistory = [...stockHistory].reverse();
-
     return (
       <div className="space-y-6">
         <section className="rounded-xl bg-white p-6 shadow-sm">
@@ -576,9 +694,13 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {orderedHistory.length === 0 ? (
+          {historyError ? (
+            <p className="mt-6 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600">
+              Erro ao carregar historico: {historyError.message}
+            </p>
+          ) : stockHistory.length === 0 ? (
             <p className="mt-6 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-              Ainda n\u00e3o h\u00e1 movimentacoes registradas. Utilize os botoes de adicionar ou
+              Ainda nao ha movimentacoes registradas. Utilize os botoes de adicionar ou
               remover estoque para registrar a primeira movimentacao.
             </p>
           ) : (
@@ -604,10 +726,12 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {orderedHistory.map((entry) => (
+                  {stockHistory.map((entry) => (
                     <tr key={entry.id} className="bg-white">
                       <td className="px-4 py-3 text-sm text-slate-600">
-                        {new Date(entry.timestamp).toLocaleString("pt-BR")}
+                        {entry.created_at
+                          ? new Date(entry.created_at).toLocaleString("pt-BR")
+                          : "-"}
                       </td>
                       <td
                         className={`px-4 py-3 text-sm font-medium ${
@@ -617,14 +741,14 @@ export default function Dashboard() {
                         {entry.action === "add" ? "Entrada" : "Saida"}
                       </td>
                       <td className="px-4 py-3 text-sm text-slate-700">
-                        {entry.code ? `${entry.code} - ` : ""}
-                        {entry.name}
+                        {entry.component_code ? `${entry.component_code} - ` : ""}
+                        {entry.component_name}
                       </td>
                       <td className="px-4 py-3 text-right text-sm text-slate-600">
-                        {entry.quantity.toLocaleString("pt-BR")}
+                        {Number(entry.quantity ?? 0).toLocaleString("pt-BR")}
                       </td>
                       <td className="px-4 py-3 text-right text-sm text-slate-600">
-                        {entry.resultingQuantity.toLocaleString("pt-BR")}
+                        {Number(entry.resulting_quantity ?? 0).toLocaleString("pt-BR")}
                       </td>
                     </tr>
                   ))}
@@ -674,18 +798,59 @@ export default function Dashboard() {
       customer: selectedProject.metadata.customer ?? "",
       notes: selectedProject.metadata.notes ?? "",
       observation: selectedProject.metadata.observation ?? "",
+      projectValue:
+        selectedProject.metadata.projectValue !== undefined &&
+        selectedProject.metadata.projectValue !== null
+          ? String(selectedProject.metadata.projectValue)
+          : "",
     };
-  const components = selectedProject.components.map((component) => ({
-    ...cloneComponent(component),
-    quantityPerAssembly:
-      component.quantityPerAssembly !== undefined
-        ? String(component.quantityPerAssembly)
-        : "",
-    description: component.description ?? "",
-    nomenclature: component.nomenclature ?? "",
-  }));
+    const components = selectedProject.components.map((component) => ({
+      ...cloneComponent(component),
+      quantityPerAssembly:
+        component.quantityPerAssembly !== undefined
+          ? String(component.quantityPerAssembly)
+          : "",
+      description: component.description ?? "",
+      nomenclature: component.nomenclature ?? "",
+    }));
     setDraftProject({ metadata, components });
     setIsEditingProject(true);
+  };
+
+  const handleProjectValueChange = (event) => {
+    const rawValue = event.target.value ?? "";
+    const sanitized = rawValue.replace(",", ".");
+    let numericValue = Number(sanitized);
+    if (rawValue.trim() === "" || !Number.isFinite(numericValue)) {
+      numericValue = 0;
+    }
+
+    setProjectOptions((current) => {
+      const next = current.map((project) =>
+        project.id === selectedProjectId
+          ? {
+              ...project,
+              metadata: {
+                ...project.metadata,
+                projectValue: numericValue,
+              },
+            }
+          : project,
+      );
+      persistProjectValues(next);
+      return next;
+    });
+
+    if (isEditingProject) {
+      setDraftProject((current) =>
+        current
+          ? {
+              ...current,
+              metadata: { ...current.metadata, projectValue: rawValue },
+            }
+          : current,
+      );
+    }
   };
 
   const handleAdjustStock = async (action) => {
@@ -721,18 +886,29 @@ export default function Dashboard() {
     try {
       setIsUpdatingStock(true);
       await updateItem(targetItem.id, { quantity: nextQuantity });
-      setStockHistory((current) => [
-        ...current,
-        {
-          id: `${targetItem.id}-${Date.now()}`,
-          timestamp: new Date().toISOString(),
-          action,
-          quantity: amountNumber,
-          resultingQuantity: nextQuantity,
-          name: targetItem.name,
-          code: targetItem.code ?? "",
-        },
-      ]);
+
+      const historyPayload = {
+        item_id: targetItem.id,
+        action,
+        quantity: amountNumber,
+        resulting_quantity: nextQuantity,
+        component_name: targetItem.name,
+        component_code: targetItem.code ?? null,
+      };
+
+      const { data: insertedHistory, error: historyInsertError } = await supabase
+        .from("historico_estoque")
+        .insert(historyPayload)
+        .select("*")
+        .single();
+
+      if (historyInsertError) {
+        console.error("Falha ao registrar historico de estoque:", historyInsertError);
+        setHistoryError(historyInsertError);
+      } else if (insertedHistory) {
+        setStockHistory((current) => [insertedHistory, ...current]);
+      }
+
       setAdjustFeedback({
         type: "success",
         message:
@@ -853,8 +1029,8 @@ export default function Dashboard() {
       return;
     }
 
-    setProjectOptions((current) =>
-      current.map((project) => {
+    setProjectOptions((current) => {
+      const next = current.map((project) => {
         if (project.id !== selectedProjectId) return project;
         return {
           ...project,
@@ -862,8 +1038,10 @@ export default function Dashboard() {
           metadata,
           components: sanitizedComponents,
         };
-      }),
-    );
+      });
+      persistProjectValues(next);
+      return next;
+    });
     setIsEditingProject(false);
     setDraftProject(null);
   };
@@ -895,8 +1073,26 @@ export default function Dashboard() {
       if (!codeA && codeB) return 1;
       return a.name.localeCompare(b.name, "pt-BR");
     });
-    return sorted;
-  }, [items]);
+
+    const search = normalize(stockSearch);
+    if (!search) return sorted;
+
+    return sorted.filter((item) => {
+      const code = normalize(item.code);
+      const name = normalize(item.name);
+      const description = normalize(item.description);
+      const nomenclature = normalize(item.nomenclature);
+      const location = normalize(item.location);
+
+      return (
+        code.includes(search) ||
+        name.includes(search) ||
+        description.includes(search) ||
+        nomenclature.includes(search) ||
+        location.includes(search)
+      );
+    });
+  }, [items, stockSearch]);
 
   if (loading) {
     return (
@@ -938,36 +1134,36 @@ export default function Dashboard() {
         <div className="absolute inset-0 bg-slate-900/70" aria-hidden />
         <div className="relative z-10 space-y-4 p-8 sm:p-12">
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-sky-200">
-            Central WLT
+            {heroEyebrow}
           </p>
-          <h1 className="text-3xl font-bold md:text-4xl">Hub de Projetos e Estoque</h1>
-          <p className="max-w-2xl text-sm text-slate-100 md:text-base">
-            Visualize os componentes de cada projeto, acompanhe o estoque e organize o envio para montagem.
-          </p>
+          <h1 className="text-3xl font-bold md:text-4xl">{heroTitle}</h1>
+          <p className="max-w-2xl text-sm text-slate-100 md:text-base">{heroSubtitle}</p>
         </div>
       </div>
 
-      <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200 p-2 shadow-inner">
-        <nav className="flex gap-2">
-          {tabs.map((tab) => {
-            const isActive = tab.id === activeTab;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex-1 rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
-                  isActive
-                    ? "bg-sky-600 text-white shadow"
-                    : "bg-transparent text-slate-500 hover:bg-slate-100"
-                }`}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </nav>
-      </div>
+      {availableTabs.length > 1 && (
+        <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200 p-2 shadow-inner">
+          <nav className="flex gap-2">
+            {availableTabs.map((tab) => {
+              const isActive = tab.id === activeTab;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex-1 rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
+                    isActive
+                      ? "bg-sky-600 text-white shadow"
+                      : "bg-transparent text-slate-500 hover:bg-slate-100"
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+      )}
 
       {activeTab === "projects"
         ? renderProjectsTab()
@@ -977,3 +1173,9 @@ export default function Dashboard() {
     </div>
   );
 }
+
+
+
+
+
+

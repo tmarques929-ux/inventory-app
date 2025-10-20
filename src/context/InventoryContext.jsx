@@ -31,6 +31,8 @@ const ITEM_COLUMN_OPTIONS = {
   category_id: ['category_id', 'categoria_id'],
   quantity: ['quantity', 'quantidade'],
   location: ['location', 'localizacao'],
+  price_current: ['preco_atual', 'preco', 'price_current'],
+  price_previous: ['preco_ultimo', 'preco_anterior', 'price_previous'],
 };
 
 const DEFAULT_ITEM_COLUMNS = {
@@ -40,6 +42,8 @@ const DEFAULT_ITEM_COLUMNS = {
   category_id: 'categoria_id',
   quantity: 'quantidade',
   location: 'localizacao',
+  price_current: 'preco_atual',
+  price_previous: 'preco_ultimo',
 };
 
 /**
@@ -114,15 +118,26 @@ export function InventoryProvider({ children }) {
     return next;
   };
 
-const toAppItem = (row, columns = itemColumns) => ({
-  ...row,
-  code: columns.code ? row?.[columns.code] ?? null : null,
-  name: row?.[columns.name] ?? '',
-  description: row?.[columns.description] ?? '',
-  category_id: row?.[columns.category_id] ?? null,
-  quantity: row?.[columns.quantity] ?? 0,
-  location: row?.[columns.location] ?? '',
-  });
+const toAppItem = (row, columns = itemColumns) => {
+  const currentPriceValue = columns.price_current ? row?.[columns.price_current] : null;
+  const previousPriceValue = columns.price_previous ? row?.[columns.price_previous] : null;
+  const toNumber = (value) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+
+  return {
+    ...row,
+    code: columns.code ? row?.[columns.code] ?? null : null,
+    name: row?.[columns.name] ?? '',
+    description: row?.[columns.description] ?? '',
+    category_id: row?.[columns.category_id] ?? null,
+    quantity: row?.[columns.quantity] ?? 0,
+    location: row?.[columns.location] ?? '',
+    currentPrice: toNumber(currentPriceValue),
+    lastPrice: toNumber(previousPriceValue),
+  };
+};
 
 const toDbItem = (item, columns = itemColumns) => {
   const payload = {};
@@ -132,8 +147,12 @@ const toDbItem = (item, columns = itemColumns) => {
   if ('category_id' in item) payload[columns.category_id] = item.category_id;
   if ('quantity' in item) payload[columns.quantity] = item.quantity;
   if ('location' in item) payload[columns.location] = item.location;
-    return payload;
-  };
+  if (columns.price_current && 'currentPrice' in item)
+    payload[columns.price_current] = item.currentPrice;
+  if (columns.price_previous && 'lastPrice' in item)
+    payload[columns.price_previous] = item.lastPrice;
+  return payload;
+};
 
   const toAppCategory = (row) => ({
     ...row,
@@ -164,6 +183,23 @@ const toDbItem = (item, columns = itemColumns) => {
   };
 
   const ensureSeedInventory = async (currentItems, columns) => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    const sessionRole =
+      session?.user?.app_metadata?.role ??
+      session?.user?.role ??
+      session?.user?.aud ??
+      '';
+    const isAuthenticated =
+      typeof sessionRole === 'string' &&
+      sessionRole.toLowerCase().includes('authenticated');
+
+    if (!isAuthenticated) {
+      return currentItems;
+    }
+
     const missingSeeds = inventorySeedComponents.filter(
       (seed) => !currentItems.some((item) => matchesSeed(seed, item)),
     );
@@ -241,13 +277,38 @@ const toDbItem = (item, columns = itemColumns) => {
     return mapped;
   };
 
+  const recordPriceHistory = async (itemId, priceValue) => {
+    const numericPrice = Number(priceValue);
+    if (!itemId || !Number.isFinite(numericPrice) || numericPrice <= 0) return;
+    try {
+      await supabase.from('itens_precos_historico').insert({
+        item_id: itemId,
+        preco: numericPrice,
+      });
+    } catch (err) {
+      console.error('Erro ao registrar historico de precos', err);
+    }
+  };
+
   /**
    * Add a new item to the database and update local state.
    * @param {Object} item - The item fields to insert.
    */
   const addItem = async (item) => {
+    const sanitizePrice = (value) => {
+      if (value === '' || value === null || value === undefined) return null;
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : null;
+    };
+
+    const preparedItem = {
+      ...item,
+      currentPrice: sanitizePrice(item.currentPrice),
+      lastPrice: sanitizePrice(item.lastPrice),
+    };
+
     const insert = async (mapping) =>
-      supabase.from('itens').insert(toDbItem(item, mapping)).select().single();
+      supabase.from('itens').insert(toDbItem(preparedItem, mapping)).select().single();
 
     const { data, error } = await insert(itemColumns);
     if (error) {
@@ -258,12 +319,14 @@ const toDbItem = (item, columns = itemColumns) => {
       const normalizedColumns = detectItemColumns([retry.data]);
       const mappedRetry = toAppItem(retry.data, normalizedColumns);
       setItems((prev) => [...prev, mappedRetry]);
+      await recordPriceHistory(mappedRetry.id, mappedRetry.currentPrice);
       return mappedRetry;
     }
 
     const normalizedColumns = detectItemColumns([data]);
     const mapped = toAppItem(data, normalizedColumns);
     setItems((prev) => [...prev, mapped]);
+    await recordPriceHistory(mapped.id, mapped.currentPrice);
     return mapped;
   };
 
@@ -273,30 +336,67 @@ const toDbItem = (item, columns = itemColumns) => {
    * @param {Object} updates - The fields to update.
    */
   const updateItem = async (id, updates) => {
-    const { data, error } = await supabase
-      .from('itens')
-      .update(toDbItem(updates))
-      .eq('id', id)
-      .select()
-      .single();
-    if (error) {
-      const adjustedColumns = resolveColumnError(error, itemColumns);
-      if (!adjustedColumns) throw error;
-      const retry = await supabase
+    const existingItem = items.find((item) => String(item.id) === String(id));
+    const sanitizePrice = (value) => {
+      if (value === '' || value === null || value === undefined) return null;
+      const numeric = Number(value);
+      return Number.isFinite(numeric) ? numeric : null;
+    };
+
+    const preparedUpdates = { ...updates };
+    if ('currentPrice' in preparedUpdates) {
+      const sanitizedCurrent = sanitizePrice(preparedUpdates.currentPrice);
+      preparedUpdates.currentPrice = sanitizedCurrent;
+      if (!('lastPrice' in preparedUpdates) && existingItem) {
+        preparedUpdates.lastPrice = sanitizePrice(existingItem.currentPrice);
+      }
+    }
+    if ('lastPrice' in preparedUpdates) {
+      preparedUpdates.lastPrice = sanitizePrice(preparedUpdates.lastPrice);
+    }
+
+    const performUpdate = async (mapping) =>
+      supabase
         .from('itens')
-        .update(toDbItem(updates, adjustedColumns))
+        .update(toDbItem(preparedUpdates, mapping))
         .eq('id', id)
         .select()
         .single();
+
+    const { data, error } = await performUpdate(itemColumns);
+    if (error) {
+      const adjustedColumns = resolveColumnError(error, itemColumns);
+      if (!adjustedColumns) throw error;
+      const retry = await performUpdate(adjustedColumns);
       if (retry.error) throw retry.error;
       const normalizedColumns = detectItemColumns([retry.data]);
       const mappedRetry = toAppItem(retry.data, normalizedColumns);
       setItems((prev) => prev.map((item) => (item.id === id ? mappedRetry : item)));
+      const previousPrice = Number(existingItem?.currentPrice ?? null);
+      const newPrice = Number(mappedRetry.currentPrice ?? null);
+      if (
+        Number.isFinite(newPrice) &&
+        newPrice > 0 &&
+        (!Number.isFinite(previousPrice) ||
+          Number(previousPrice.toFixed(2)) !== Number(newPrice.toFixed(2)))
+      ) {
+        await recordPriceHistory(mappedRetry.id, newPrice);
+      }
       return mappedRetry;
     }
     const normalizedColumns = detectItemColumns([data]);
     const mapped = toAppItem(data, normalizedColumns);
     setItems((prev) => prev.map((item) => (item.id === id ? mapped : item)));
+    const previousPrice = Number(existingItem?.currentPrice ?? null);
+    const newPrice = Number(mapped.currentPrice ?? null);
+    if (
+      Number.isFinite(newPrice) &&
+      newPrice > 0 &&
+      (!Number.isFinite(previousPrice) ||
+        Number(previousPrice.toFixed(2)) !== Number(newPrice.toFixed(2)))
+    ) {
+      await recordPriceHistory(mapped.id, newPrice);
+    }
     return mapped;
   };
 
