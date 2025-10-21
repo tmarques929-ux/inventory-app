@@ -11,6 +11,15 @@ const feedbackStyles = {
   error: 'border-rose-200 bg-rose-50 text-rose-700',
 };
 
+const AUTH_ERROR_FALLBACK =
+  'N\u00E3o foi poss\u00EDvel concluir a opera\u00E7\u00E3o.';
+const MAGIC_LINK_SUCCESS =
+  'Enviamos um link m\u00E1gico para seu e-mail. Confira sua caixa de entrada.';
+const MAGIC_LINK_ERROR_FALLBACK = 'N\u00E3o foi poss\u00EDvel enviar o link m\u00E1gico.';
+const CONNECTION_SUCCESS = 'Conex\u00E3o com Supabase estabelecida com sucesso.';
+const CONNECTION_ERROR_PREFIX = 'Erro ao testar conex\u00E3o: ';
+const showConnectionPing = import.meta.env.DEV;
+
 export default function LoginPage() {
   const { signInWithEmail, signUpWithEmail, signInWithMagicLink, user } = useAuth();
   const navigate = useNavigate();
@@ -47,7 +56,10 @@ export default function LoginPage() {
         navigate('/');
       }
     } catch (err) {
-      setFeedback({ type: 'error', text: err.message || 'Não foi possível concluir a operação.' });
+      setFeedback({
+        type: 'error',
+        text: err.message || AUTH_ERROR_FALLBACK,
+      });
     } finally {
       setLoading(false);
     }
@@ -61,10 +73,13 @@ export default function LoginPage() {
       if (error) throw error;
       setFeedback({
         type: 'success',
-        text: 'Enviamos um link mágico para seu e-mail. Confira sua caixa de entrada.',
+        text: MAGIC_LINK_SUCCESS,
       });
     } catch (err) {
-      setFeedback({ type: 'error', text: err.message || 'Não foi possível enviar o link mágico.' });
+      setFeedback({
+        type: 'error',
+        text: err.message || MAGIC_LINK_ERROR_FALLBACK,
+      });
     } finally {
       setLoading(false);
     }
@@ -85,9 +100,9 @@ export default function LoginPage() {
       <div className="relative z-10 w-full max-w-md">
         <div className="overflow-hidden rounded-3xl border border-white/10 bg-white/95 shadow-2xl backdrop-blur">
           <div className="space-y-6 p-8">
-            <header className="text-center space-y-2">
+            <header className="space-y-2 text-center">
               <p className="text-xs font-semibold uppercase tracking-[0.4em] text-slate-400">
-                WLT Automação
+                WLT Automa\u00E7\u00E3o
               </p>
               <h1 className="text-3xl font-bold text-slate-900">
                 {isRegister ? 'Criar conta' : 'Acessar painel'}
@@ -128,7 +143,7 @@ export default function LoginPage() {
                   required
                   autoComplete={isRegister ? 'new-password' : 'current-password'}
                   className="rounded-xl border border-slate-200 px-4 py-3 text-base font-normal text-slate-900 shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-                  placeholder="••••••••"
+                  placeholder="********"
                 />
               </label>
 
@@ -148,7 +163,7 @@ export default function LoginPage() {
                 disabled={loading || !email}
                 className="w-full rounded-xl border border-sky-200 px-6 py-3 text-sm font-semibold text-sky-600 transition hover:border-sky-300 hover:bg-sky-50 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2 focus:ring-offset-white disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
               >
-                Enviar link mágico por e-mail
+                Enviar link m\u00E1gico por e-mail
               </button>
             )}
 
@@ -161,9 +176,9 @@ export default function LoginPage() {
                 }}
                 className="font-semibold text-sky-600 transition hover:text-sky-700"
               >
-                {isRegister ? 'Já possui conta? Entrar' : 'Ainda não tem acesso? Criar conta'}
+                {isRegister ? 'J\u00E1 possui conta? Entrar' : 'Ainda n\u00E3o tem acesso? Criar conta'}
               </button>
-              <ConnectionPingButton disabled={loading} />
+              {showConnectionPing && <ConnectionPingButton disabled={loading} />}
             </div>
           </div>
         </div>
@@ -177,10 +192,10 @@ function ConnectionPingButton({ disabled }) {
     try {
       const { data, error } = await supabase.auth.getSession();
       if (error) {
-        alert(`Erro ao testar conexão: ${error.message}`);
+        alert(`${CONNECTION_ERROR_PREFIX}${error.message}`);
       } else {
         console.log('PING getSession =>', { data, error });
-        alert('Conexão com Supabase estabelecida com sucesso.');
+        alert(CONNECTION_SUCCESS);
       }
     } catch (err) {
       alert(`Falha de rede: ${err.message}`);
@@ -194,7 +209,8 @@ function ConnectionPingButton({ disabled }) {
       disabled={disabled}
       className="text-xs font-medium text-slate-400 underline-offset-4 transition hover:text-slate-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-300"
     >
-      Testar conexão com Supabase
+      Testar conex\u00E3o com Supabase
     </button>
   );
 }
+

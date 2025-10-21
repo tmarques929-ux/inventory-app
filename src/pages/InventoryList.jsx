@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useInventory } from "../context/InventoryContext";
 import WltLogoMark from "../components/WltLogoMark";
@@ -18,37 +18,53 @@ export default function InventoryList() {
     fetchItems,
   } = useInventory();
   const [filter, setFilter] = useState("");
-  const [filtered, setFiltered] = useState([]);
+  const [pendingDelete, setPendingDelete] = useState(null);
+  const [deleteError, setDeleteError] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     fetchItems();
   }, [fetchItems]);
 
-  useEffect(() => {
-    const lower = filter.toLowerCase();
-    setFiltered(
-      items.filter((item) => {
-        const categoryName =
-          categories.find((c) => c.id === item.category_id)?.name.toLowerCase() ?? "";
-        return (
-          item.name.toLowerCase().includes(lower) ||
-          categoryName.includes(lower) ||
-          (item.code && item.code.toLowerCase().includes(lower))
-        );
-      }),
-    );
+  const filteredItems = useMemo(() => {
+    const lower = filter.trim().toLowerCase();
+    if (!lower) return items;
+
+    return items.filter((item) => {
+      const categoryName =
+        categories.find((c) => c.id === item.category_id)?.name.toLowerCase() ?? "";
+      return (
+        item.name.toLowerCase().includes(lower) ||
+        categoryName.includes(lower) ||
+        (item.code && item.code.toLowerCase().includes(lower))
+      );
+    });
   }, [items, categories, filter]);
 
   if (loading) return <p>Carregando itens...</p>;
   if (error) return <p>Erro ao carregar itens: {error.message}</p>;
 
-  const handleDelete = async (id) => {
-    if (confirm("Tem certeza que deseja excluir este item?")) {
-      try {
-        await deleteItem(id);
-      } catch (err) {
-        alert("Erro ao excluir item: " + err.message);
-      }
+  const requestDelete = (item) => {
+    setPendingDelete(item);
+    setDeleteError("");
+  };
+
+  const cancelDelete = () => {
+    if (isDeleting) return;
+    setPendingDelete(null);
+    setDeleteError("");
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setIsDeleting(true);
+    try {
+      await deleteItem(pendingDelete.id);
+      setPendingDelete(null);
+    } catch (err) {
+      setDeleteError(err.message || "Erro ao excluir item.");
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -75,6 +91,33 @@ export default function InventoryList() {
           className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 md:w-1/2"
         />
       </div>
+      {pendingDelete && (
+        <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          <p>
+            Confirma a exclus\u00E3o do item{" "}
+            <span className="font-semibold text-red-800">{pendingDelete.name}</span>?
+          </p>
+          {deleteError && <p className="mt-2 text-xs text-red-600">{deleteError}</p>}
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={confirmDelete}
+              disabled={isDeleting}
+              className="rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-400"
+            >
+              {isDeleting ? "Excluindo..." : "Excluir"}
+            </button>
+            <button
+              type="button"
+              onClick={cancelDelete}
+              disabled={isDeleting}
+              className="rounded-md border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 transition hover:border-red-300 hover:bg-red-100 disabled:cursor-not-allowed disabled:text-red-300"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
       <div className="overflow-x-auto">
         <table className="min-w-full rounded bg-white shadow">
           <thead>
@@ -86,30 +129,41 @@ export default function InventoryList() {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((item, index) => (
-              <tr
-                key={item.id}
-                className={`border-t ${index % 2 === 0 ? "bg-white" : "bg-sky-50/40"}`}
-              >
-                <td className="px-4 py-2 font-mono text-sm">{item.code || "-"}</td>
-                <td className="px-4 py-2">{item.name}</td>
-                <td className="px-4 py-2 text-right">{item.quantity}</td>
-                <td className="px-4 py-2 space-x-2 text-center">
-                  <Link
-                    to={`/inventory/${item.id}`}
-                    className="text-blue-600 hover:underline"
-                  >
-                    Editar
-                  </Link>
-                  <button
-                    onClick={() => handleDelete(item.id)}
-                    className="text-red-600 hover:underline"
-                  >
-                    Excluir
-                  </button>
+            {filteredItems.length === 0 ? (
+              <tr>
+                <td colSpan={4} className="px-4 py-6 text-center text-sm text-slate-500">
+                  {filter
+                    ? "Nenhum item corresponde ao termo pesquisado."
+                    : "Nenhum item cadastrado no momento."}
                 </td>
               </tr>
-            ))}
+            ) : (
+              filteredItems.map((item, index) => (
+                <tr
+                  key={item.id}
+                  className={`border-t ${index % 2 === 0 ? "bg-white" : "bg-sky-50/40"}`}
+                >
+                  <td className="px-4 py-2 font-mono text-sm">{item.code || "-"}</td>
+                  <td className="px-4 py-2">{item.name}</td>
+                  <td className="px-4 py-2 text-right">{item.quantity}</td>
+                  <td className="px-4 py-2 space-x-2 text-center">
+                    <Link
+                      to={`/inventory/${item.id}`}
+                      className="text-blue-600 hover:underline"
+                    >
+                      Editar
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={() => requestDelete(item)}
+                      className="text-red-600 underline-offset-4 hover:underline"
+                    >
+                      Excluir
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>
