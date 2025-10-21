@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
@@ -18,6 +19,39 @@ const navItems = [
 export default function SideNav({ collapsed = false, onToggle }) {
   const { user, signOut } = useAuth();
   const navigate = useNavigate();
+  const [usdRate, setUsdRate] = useState(null);
+  const [usdUpdatedAt, setUsdUpdatedAt] = useState(null);
+  const [usdError, setUsdError] = useState(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchUsdRate = async () => {
+      try {
+        const response = await fetch("https://economia.awesomeapi.com.br/json/last/USD-BRL", {
+          cache: "no-store",
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        const quote = data?.USDBRL;
+        const bid = Number(quote?.bid);
+        if (isMounted && Number.isFinite(bid)) {
+          setUsdRate(bid);
+          setUsdUpdatedAt(new Date());
+          setUsdError(null);
+        }
+      } catch (err) {
+        if (!isMounted) return;
+        setUsdError("Falha ao atualizar cotação");
+      }
+    };
+
+    fetchUsdRate();
+    const interval = setInterval(fetchUsdRate, 60_000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   const handleLogout = async () => {
     await signOut();
@@ -85,6 +119,32 @@ export default function SideNav({ collapsed = false, onToggle }) {
           >
             Sair
           </button>
+          <div className={`mt-3 ${collapsed ? "text-center" : ""}`}>
+            {usdRate ? (
+              <p
+                className={`text-xs font-medium text-slate-600 ${
+                  collapsed ? "whitespace-nowrap" : ""
+                }`}
+              >
+                USD hoje:{" "}
+                <span className="font-semibold text-slate-800">
+                  R$ {usdRate.toFixed(2)}
+                </span>
+                {!collapsed && usdUpdatedAt && (
+                  <span className="block text-[10px] font-normal text-slate-400">
+                    Atualizado às{" "}
+                    {usdUpdatedAt.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                )}
+              </p>
+            ) : usdError ? (
+              !collapsed && (
+                <p className="text-[10px] text-rose-500">{usdError}</p>
+              )
+            ) : (
+              <p className="text-[10px] text-slate-400">Atualizando USD...</p>
+            )}
+          </div>
         </div>
       )}
     </aside>

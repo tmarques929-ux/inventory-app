@@ -1,4 +1,4 @@
-const DEFAULT_STORAGE = 'Projeto Dispenser';
+const DEFAULT_STORAGE = '';
 
 const baseComponents = [
   { quantityPerAssembly: 3, value: 'B5817WS-TP', package: 'SOD-323', description: 'Diodo Schottky 20V 1A', includeInProject: false },

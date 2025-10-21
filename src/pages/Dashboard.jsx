@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import { useInventory } from "../context/InventoryContext";
 import { supabase } from "../supabaseClient";
 import WltLogoMark from "../components/WltLogoMark";
@@ -18,6 +20,9 @@ const cloneComponent = (component) => {
   }
   if (Array.isArray(component.tags)) {
     cloned.tags = [...component.tags];
+  }
+  if (Object.prototype.hasOwnProperty.call(component, "inventoryItemId")) {
+    cloned.inventoryItemId = component.inventoryItemId;
   }
   return cloned;
 };
@@ -41,6 +46,13 @@ const ALL_TABS = [
   { id: "history", label: "Historico estoque" },
 ];
 
+const PROJECT_STATE_STORAGE_KEY = "inventory-app-project-state";
+const PROJECT_VALUES_STORAGE_KEY = "inventory-app-project-values";
+const PROJECT_STATE_COOKIE_PREFIX = "iap_state_chunk_";
+const PROJECT_STATE_COOKIE_COUNT = "iap_state_chunk_count";
+const PROJECT_STATE_COOKIE_TTL = 60 * 60 * 24 * 365 * 2; // dois anos
+const PROJECT_EDIT_PASSWORD = import.meta.env.VITE_PROJECT_EDIT_PASSWORD || "wlt-edit";
+
 const normalize = (value) => (value ? value.toString().trim().toLowerCase() : "");
 
 const buildCatalog = (components) =>
@@ -49,13 +61,132 @@ const buildCatalog = (components) =>
     itemNumber: component.itemNumber ?? index + 1,
   }));
 
+const sortInventoryItems = (inventoryList) =>
+  [...inventoryList].sort((a, b) => {
+    const codeA = normalize(a.code);
+    const codeB = normalize(b.code);
+    if (codeA && codeB && codeA !== codeB) {
+      return codeA.localeCompare(codeB, "pt-BR", { numeric: true });
+    }
+    if (codeA && !codeB) return -1;
+    if (!codeA && codeB) return 1;
+    return a.name.localeCompare(b.name, "pt-BR");
+  });
+
+const generateNextStockCode = (items) => {
+  const trimmedCodes = items
+    .map((item) => (item.code ?? "").trim())
+    .filter(Boolean);
+  const numericEntries = trimmedCodes
+    .map((code) => {
+      const match = code.match(/^0*(\d+)$/);
+      if (!match) return null;
+      return { numeric: Number(match[1]), length: code.length };
+    })
+    .filter(Boolean);
+
+  const padLength = numericEntries.length
+    ? Math.max(
+        3,
+        numericEntries.reduce((max, entry) => Math.max(max, entry.length), 0),
+      )
+    : Math.max(
+        3,
+        trimmedCodes.reduce((max, code) => Math.max(max, code.length), 0) || 3,
+      );
+
+  let nextValue =
+    numericEntries.length > 0
+      ? numericEntries.reduce((max, entry) => Math.max(max, entry.numeric), 0) + 1
+      : 1;
+
+  const existingSet = new Set(trimmedCodes.map((code) => code.toLowerCase()));
+  let candidate = nextValue.toString().padStart(padLength, "0");
+
+  while (existingSet.has(candidate.toLowerCase())) {
+    nextValue += 1;
+    candidate = nextValue.toString().padStart(padLength, "0");
+  }
+
+  return candidate;
+};
+
+const getCookieValue = (name) => {
+  if (typeof document === "undefined") return null;
+  const pattern = new RegExp(`(?:^|; )${name.replace(/([.$?*|{}()[\]\\/+^])/g, "\\$1")}=([^;]*)`);
+  const match = document.cookie.match(pattern);
+  return match ? decodeURIComponent(match[1]) : null;
+};
+
+const clearProjectStateCookies = () => {
+  if (typeof document === "undefined") return;
+  const countValue = getCookieValue(PROJECT_STATE_COOKIE_COUNT);
+  const count = Number(countValue);
+  if (Number.isFinite(count) && count > 0) {
+    for (let i = 0; i < count; i += 1) {
+      document.cookie = `${PROJECT_STATE_COOKIE_PREFIX}${i}=; path=/; max-age=0`;
+    }
+  }
+  document.cookie = `${PROJECT_STATE_COOKIE_COUNT}=; path=/; max-age=0`;
+};
+
+const writeProjectStateCookie = (jsonPayload) => {
+  if (typeof document === "undefined") return;
+  try {
+    const encoded = window.btoa(unescape(encodeURIComponent(jsonPayload)));
+    const chunkSize = 3500;
+    const totalChunks = Math.ceil(encoded.length / chunkSize);
+
+    const previousCountValue = getCookieValue(PROJECT_STATE_COOKIE_COUNT);
+    const previousCount = Number(previousCountValue);
+
+    for (let i = 0; i < totalChunks; i += 1) {
+      const chunk = encoded.slice(i * chunkSize, i * chunkSize + chunkSize);
+      document.cookie = `${PROJECT_STATE_COOKIE_PREFIX}${i}=${chunk}; path=/; max-age=${PROJECT_STATE_COOKIE_TTL}`;
+    }
+
+    document.cookie = `${PROJECT_STATE_COOKIE_COUNT}=${totalChunks}; path=/; max-age=${PROJECT_STATE_COOKIE_TTL}`;
+
+    if (Number.isFinite(previousCount) && previousCount > totalChunks) {
+      for (let i = totalChunks; i < previousCount; i += 1) {
+        document.cookie = `${PROJECT_STATE_COOKIE_PREFIX}${i}=; path=/; max-age=0`;
+      }
+    }
+  } catch (err) {
+    console.error("Erro ao gravar cookie de estado do projeto", err);
+  }
+};
+
+const readProjectStateCookie = () => {
+  if (typeof document === "undefined") return null;
+  try {
+    const countValue = getCookieValue(PROJECT_STATE_COOKIE_COUNT);
+    const count = Number(countValue);
+    if (!Number.isFinite(count) || count <= 0) return null;
+
+    let encoded = "";
+    for (let i = 0; i < count; i += 1) {
+      const chunk = getCookieValue(`${PROJECT_STATE_COOKIE_PREFIX}${i}`);
+      if (!chunk) return null;
+      encoded += chunk;
+    }
+
+    if (!encoded) return null;
+    const json = decodeURIComponent(escape(window.atob(encoded)));
+    return json;
+  } catch (err) {
+    console.error("Erro ao ler cookie de estado do projeto", err);
+    return null;
+  }
+};
+
 export default function Dashboard({
   allowedTabs,
   heroEyebrow = "Central WLT",
   heroTitle = "Hub de Projetos e Estoque",
   heroSubtitle = "Visualize os componentes de cada projeto, acompanhe o estoque e organize o envio para montagem.",
 }) {
-  const { items, loading, error, updateItem } = useInventory();
+  const { items, loading, error, updateItem, addItem } = useInventory();
 
   const allowedTabsKey = Array.isArray(allowedTabs) ? allowedTabs.join("|") : "all";
   const allowedTabIds = useMemo(() => {
@@ -88,16 +219,38 @@ export default function Dashboard({
     [allowedTabIdsKey],
   );
 
-  const persistProjectValues = (projects) => {
-  if (typeof window === "undefined") return;
+  const persistProjectState = (projects) => {
+    if (typeof window === "undefined") return;
   try {
     const payload = projects.reduce((acc, project) => {
-      acc[project.id] = Number(project.metadata.projectValue ?? 0);
+      const metadata = { ...project.metadata };
+      if (metadata.projectValue !== undefined) {
+        const numericValue = Number(metadata.projectValue);
+        metadata.projectValue = Number.isFinite(numericValue) ? numericValue : 0;
+      }
+      acc[project.id] = {
+        metadata,
+        components: project.components.map((component) => {
+          const cloned = cloneComponent(component);
+          if (
+            cloned.quantityPerAssembly !== undefined &&
+            cloned.quantityPerAssembly !== null
+          ) {
+            const quantityValue = Number(cloned.quantityPerAssembly);
+            cloned.quantityPerAssembly = Number.isFinite(quantityValue) ? quantityValue : 1;
+          }
+          return cloned;
+        }),
+      };
       return acc;
     }, {});
-    window.localStorage.setItem("inventory-app-project-values", JSON.stringify(payload));
+    const serialized = JSON.stringify(payload);
+    window.localStorage.setItem(PROJECT_STATE_STORAGE_KEY, serialized);
+    window.localStorage.removeItem(PROJECT_VALUES_STORAGE_KEY);
+    writeProjectStateCookie(serialized);
   } catch (err) {
-    console.error("Erro ao salvar valores de projetos", err);
+    console.error("Erro ao salvar configuracao de projetos", err);
+    clearProjectStateCookies();
   }
 };
 
@@ -118,6 +271,8 @@ const [selectedProjectId, setSelectedProjectId] = useState(
   );
 
   const [projectItems, setProjectItems] = useState([]);
+  const [boardsToProduce, setBoardsToProduce] = useState("");
+  const [generatedQuantity, setGeneratedQuantity] = useState(null);
   const [adjustItemId, setAdjustItemId] = useState("");
   const [adjustAmount, setAdjustAmount] = useState("");
   const [adjustFeedback, setAdjustFeedback] = useState({ type: null, message: "" });
@@ -125,6 +280,18 @@ const [selectedProjectId, setSelectedProjectId] = useState(
   const [stockHistory, setStockHistory] = useState([]);
   const [historyError, setHistoryError] = useState(null);
   const [stockSearch, setStockSearch] = useState("");
+  const [newItemCode, setNewItemCode] = useState("");
+  const [newItemName, setNewItemName] = useState("");
+  const [newItemDescription, setNewItemDescription] = useState("");
+  const [newItemQuantity, setNewItemQuantity] = useState("");
+  const [newItemLocation, setNewItemLocation] = useState("");
+  const [isCreatingItem, setIsCreatingItem] = useState(false);
+  const [newItemFeedback, setNewItemFeedback] = useState({ type: null, message: "" });
+  const [hasEditAccess, setHasEditAccess] = useState(false);
+  const priceFormatter = useMemo(
+    () => new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 0 }),
+    [],
+  );
 
   useEffect(() => {
     setProjectItems([]);
@@ -135,27 +302,126 @@ const [selectedProjectId, setSelectedProjectId] = useState(
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
-      const stored = window.localStorage.getItem("inventory-app-project-values");
-      if (!stored) return;
-      const parsed = JSON.parse(stored);
-      if (parsed && typeof parsed === "object") {
-        setProjectOptions((current) => {
-          const next = current.map((project) => ({
-            ...project,
-            metadata: {
-              ...project.metadata,
-              projectValue:
-                typeof parsed[project.id] === "number"
-                  ? parsed[project.id]
-                  : project.metadata.projectValue ?? 0,
-            },
-          }));
-          persistProjectValues(next);
-          return next;
-        });
+      const storedState = window.localStorage.getItem(PROJECT_STATE_STORAGE_KEY);
+      if (storedState) {
+        const parsedState = JSON.parse(storedState);
+        if (parsedState && typeof parsedState === "object") {
+          setProjectOptions((current) => {
+            const next = current.map((project) => {
+              const saved = parsedState[project.id];
+              if (!saved) return project;
+
+              const savedMetadata = {
+                ...project.metadata,
+                ...(saved.metadata ?? {}),
+              };
+              if ("projectValue" in savedMetadata) {
+                const numeric = Number(savedMetadata.projectValue);
+                savedMetadata.projectValue = Number.isFinite(numeric) ? numeric : 0;
+              } else if (savedMetadata.projectValue === undefined) {
+                savedMetadata.projectValue = project.metadata.projectValue ?? 0;
+              }
+
+              const savedComponents = Array.isArray(saved.components)
+                ? saved.components.map((component) => {
+                    const cloned = cloneComponent(component);
+                    if (
+                      cloned.quantityPerAssembly !== undefined &&
+                      cloned.quantityPerAssembly !== null
+                    ) {
+                      const numericQuantity = Number(cloned.quantityPerAssembly);
+                      cloned.quantityPerAssembly = Number.isFinite(numericQuantity)
+                        ? numericQuantity
+                        : 1;
+                    }
+                    return cloned;
+                  })
+                : project.components.map(cloneComponent);
+
+              return {
+                ...project,
+                metadata: savedMetadata,
+                components: savedComponents,
+              };
+            });
+            persistProjectState(next);
+            return next;
+          });
+          return;
+        }
+      }
+
+      const cookieState = readProjectStateCookie();
+      if (!storedState && cookieState) {
+        const parsedCookie = JSON.parse(cookieState);
+        if (parsedCookie && typeof parsedCookie === "object") {
+          setProjectOptions((current) => {
+            const next = current.map((project) => {
+              const saved = parsedCookie[project.id];
+              if (!saved) return project;
+
+              const savedMetadata = {
+                ...project.metadata,
+                ...(saved.metadata ?? {}),
+              };
+              if ("projectValue" in savedMetadata) {
+                const numeric = Number(savedMetadata.projectValue);
+                savedMetadata.projectValue = Number.isFinite(numeric) ? numeric : 0;
+              } else if (savedMetadata.projectValue === undefined) {
+                savedMetadata.projectValue = project.metadata.projectValue ?? 0;
+              }
+
+              const savedComponents = Array.isArray(saved.components)
+                ? saved.components.map((component) => {
+                    const cloned = cloneComponent(component);
+                    if (
+                      cloned.quantityPerAssembly !== undefined &&
+                      cloned.quantityPerAssembly !== null
+                    ) {
+                      const numericQuantity = Number(cloned.quantityPerAssembly);
+                      cloned.quantityPerAssembly = Number.isFinite(numericQuantity)
+                        ? numericQuantity
+                        : 1;
+                    }
+                    return cloned;
+                  })
+                : project.components.map(cloneComponent);
+
+              return {
+                ...project,
+                metadata: savedMetadata,
+                components: savedComponents,
+              };
+            });
+            persistProjectState(next);
+            return next;
+          });
+          return;
+        }
+      }
+
+      const storedValues = window.localStorage.getItem(PROJECT_VALUES_STORAGE_KEY);
+      if (storedValues) {
+        const parsedValues = JSON.parse(storedValues);
+        if (parsedValues && typeof parsedValues === "object") {
+          setProjectOptions((current) => {
+            const next = current.map((project) => ({
+              ...project,
+              metadata: {
+                ...project.metadata,
+                projectValue:
+                  typeof parsedValues[project.id] === "number"
+                    ? parsedValues[project.id]
+                    : project.metadata.projectValue ?? 0,
+              },
+            }));
+            persistProjectState(next);
+            return next;
+          });
+        }
       }
     } catch (err) {
-      console.error("Erro ao carregar valores de projetos", err);
+      console.error("Erro ao carregar configuracao de projetos", err);
     }
   }, []);
 
@@ -186,11 +452,63 @@ const [selectedProjectId, setSelectedProjectId] = useState(
   const nameIndex = useMemo(() => {
     const map = new Map();
     items.forEach((item) => {
-      map.set(normalize(item.name), item);
-      if (item.code) map.set(normalize(item.code), item);
+      const nameKey = normalize(item.name);
+      if (nameKey) map.set(nameKey, item);
+      const codeKey = normalize(item.code);
+      if (codeKey) map.set(codeKey, item);
+      const descriptionKey = normalize(item.description);
+      if (descriptionKey) map.set(descriptionKey, item);
+      const nomenclatureKey = normalize(item.nomenclature);
+      if (nomenclatureKey) map.set(nomenclatureKey, item);
     });
     return map;
   }, [items]);
+
+  const idIndex = useMemo(() => {
+    const map = new Map();
+    items.forEach((item) => {
+      map.set(String(item.id), item);
+    });
+    return map;
+  }, [items]);
+
+  const inventorySelectionItems = useMemo(() => sortInventoryItems(items), [items]);
+
+  const findInventoryMatch = (component, preferredTerm) => {
+    const directMatch = component.inventoryItemId
+      ? idIndex.get(String(component.inventoryItemId)) ?? null
+      : null;
+
+    if (directMatch) return directMatch;
+
+    const seen = new Set();
+    const candidates = [];
+    const pushCandidate = (value) => {
+      const normalizedValue = normalize(value);
+      if (normalizedValue && !seen.has(normalizedValue)) {
+        seen.add(normalizedValue);
+        candidates.push(normalizedValue);
+      }
+    };
+
+    pushCandidate(preferredTerm);
+    pushCandidate(component.inventoryName);
+    pushCandidate(component.value);
+    pushCandidate(component.code);
+    pushCandidate(component.legacyCode);
+    (component.legacyNames || []).forEach(pushCandidate);
+    if (!preferredTerm) {
+      pushCandidate(component.description);
+      pushCandidate(component.nomenclature);
+    }
+
+    for (const candidate of candidates) {
+      const exact = nameIndex.get(candidate);
+      if (exact) return exact;
+    }
+
+  return null;
+};
 
   const renderProjectsTab = () => (
     <div className="space-y-6">
@@ -255,13 +573,25 @@ const [selectedProjectId, setSelectedProjectId] = useState(
               </label>
             </div>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
+            <label className="flex flex-col text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+              Quantidade de placas
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={boardsToProduce}
+                onChange={(event) => setBoardsToProduce(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-right text-xs text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40 lg:w-28"
+                placeholder="0"
+              />
+            </label>
             <button
               type="button"
-              onClick={handleLoadProject}
+              onClick={handleGeneratePurchaseReport}
               className="inline-flex items-center justify-center rounded-lg border border-sky-200 px-4 py-2 text-sm font-semibold text-sky-600 transition hover:border-sky-300 hover:bg-sky-50"
             >
-              Gerar lista de montagem
+              Gerar relatorio de compra
             </button>
             {!isEditingProject && (
               <button
@@ -275,7 +605,7 @@ const [selectedProjectId, setSelectedProjectId] = useState(
           </div>
         </div>
         <p className="mt-2 text-xs text-slate-400">
-          Clique em "Gerar lista de montagem" para criar uma lista temporaria com as quantidades disponiveis.
+          Informe a quantidade de placas desejada e utilize o relatorio para calcular o que precisa ser comprado.
         </p>
   
         {isEditingProject && draftProject ? (
@@ -333,9 +663,6 @@ const [selectedProjectId, setSelectedProjectId] = useState(
                 <th className="px-3 py-2 text-left font-semibold uppercase tracking-wide text-slate-500">
                   Valor / codigo
                 </th>
-                <th className="px-3 py-2 text-left font-semibold uppercase tracking-wide text-slate-500">
-                  Descricao
-                </th>
                 <th className="px-3 py-2 text-right font-semibold uppercase tracking-wide text-slate-500">
                   Qtd / placa
                 </th>
@@ -349,26 +676,39 @@ const [selectedProjectId, setSelectedProjectId] = useState(
             </thead>
                 <tbody className="divide-y divide-slate-200 bg-white">
                   {draftProject.components.map((component, index) => (
-                    <tr key={`${component.value || "component"}-${index}`}>
+                    <tr key={index}>
                       <td className="px-3 py-2 align-top">
                         <input
                           type="text"
+                          list={`inventory-suggestions-${index}`}
                           value={component.value}
                           onChange={(event) =>
                             handleDraftComponentChange(index, "value", event.target.value)
                           }
                           className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
                         />
-                      </td>
-                      <td className="px-3 py-2 align-top">
-                        <input
-                          type="text"
-                          value={component.description ?? ""}
-                          onChange={(event) =>
-                            handleDraftComponentChange(index, "description", event.target.value)
-                          }
-                          className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-                        />
+                        <datalist id={`inventory-suggestions-${index}`}>
+                          {inventorySelectionItems
+                            .filter((stockItem) => {
+                              const typedValue = component.value ?? "";
+                              const normalizedTyped = normalize(typedValue);
+                              if (!normalizedTyped) return true;
+                              const nameCandidate = normalize(stockItem.name);
+                              return nameCandidate && nameCandidate.includes(normalizedTyped);
+                            })
+                            .slice(0, 25)
+                            .map((stockItem) => (
+                              <option
+                                key={stockItem.id}
+                                value={stockItem.name}
+                                label={
+                                  stockItem.code
+                                    ? `${stockItem.name} (${stockItem.code})`
+                                    : stockItem.name
+                                }
+                              />
+                            ))}
+                        </datalist>
                       </td>
                     <td className="px-3 py-2 align-top text-right">
                       <input
@@ -443,14 +783,11 @@ const [selectedProjectId, setSelectedProjectId] = useState(
               <table className="min-w-full divide-y divide-slate-200">
                 <thead className="bg-slate-50">
                   <tr>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Codigo
-                    </th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Componente
-                    </th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Disponivel
+                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Componente
+                  </th>
+                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Disponivel
                     </th>
                     <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Qtd / placa
@@ -462,14 +799,11 @@ const [selectedProjectId, setSelectedProjectId] = useState(
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {catalogWithAvailability.map((entry) => (
-                    <tr key={entry.catalogCode || entry.code || entry.value}>
-                      <td className="px-4 py-3 text-sm font-semibold text-slate-600">
-                        {entry.code}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="text-sm font-medium text-slate-800">
-                          {entry.value}
-                        </div>
+                <tr key={entry.catalogCode || entry.code || entry.value}>
+                    <td className="px-4 py-3">
+                      <div className="text-sm font-medium text-slate-800">
+                        {entry.code ? `${entry.code} — ${entry.value}` : entry.value}
+                      </div>
                         <div className="text-xs text-slate-500">
                           {entry.description || "Sem descricao"}
                         </div>
@@ -500,61 +834,97 @@ const [selectedProjectId, setSelectedProjectId] = useState(
   
       <section className="rounded-xl bg-white p-6 shadow-sm">
         <h3 className="text-lg font-semibold text-slate-800">
-          Componentes selecionados para montagem
+          Relatorio de compra para montagem
         </h3>
         {projectItems.length === 0 ? (
           <p className="mt-3 text-sm text-slate-500">
-            Clique em "Gerar lista de montagem" para preencher esta tabela.
+            Informe a quantidade de placas e clique em "Gerar relatorio de compra" para preencher esta tabela.
           </p>
         ) : (
-          <div className="mt-4 overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200">
-              <thead className="bg-slate-50">
-                <tr>
-                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Componente
-                  </th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Disponivel
-                  </th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Qtd / placa
-                  </th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Nomenclatura
-                  </th>
-                  <th className="px-4 py-2" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {projectItems.map((entry) => (
-                  <tr key={entry.id}>
-                    <td className="px-4 py-3 text-sm font-medium text-slate-700">
-                      {entry.name}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600">
-                      {entry.available.toLocaleString("pt-BR")}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600">
-                      {entry.perBoard.toLocaleString("pt-BR")}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600">
-                      {entry.nomenclature?.trim() ? entry.nomenclature : "-"}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveProjectItem(entry.id)}
-                        className="text-sm font-medium text-rose-600 hover:underline"
-                      >
-                        Remover
-                      </button>
-                    </td>
+          <>
+            {generatedQuantity !== null && (
+              <p className="mt-2 text-xs text-slate-500">
+        Relatorio calculado para{" "}
+        <span className="font-semibold text-slate-700">
+          {generatedQuantity.toLocaleString("pt-BR")}
+        </span>{" "}
+        placas.
+      </p>
+    )}
+    <div className="mt-4 flex justify-end">
+      <button
+        type="button"
+        onClick={handleDownloadReport}
+        className="inline-flex items-center justify-center rounded-lg border border-sky-200 bg-white px-4 py-2 text-sm font-semibold text-sky-600 transition hover:border-sky-300 hover:bg-sky-50"
+      >
+        Baixar PDF
+      </button>
+    </div>
+    <div className="mt-4 overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-200">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Componente
+                    </th>
+                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Disponivel
+                    </th>
+                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Qtd / placa
+                    </th>
+                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Qtd necessaria
+                    </th>
+                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Necessario comprar
+                    </th>
+                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Nomenclatura
+                    </th>
+                    <th className="px-4 py-2" />
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {projectItems.map((entry) => (
+                    <tr key={entry.id}>
+                    <td className="px-4 py-3 text-sm font-medium text-slate-700">
+                      {entry.code ? `${entry.code} - ${entry.name}` : entry.name}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-600">
+                        {entry.available.toLocaleString("pt-BR")}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-600">
+                        {entry.perBoard.toLocaleString("pt-BR")}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-600">
+                        {entry.required.toLocaleString("pt-BR")}
+                      </td>
+                      <td
+                        className={`px-4 py-3 text-sm font-semibold ${
+                          entry.toBuy > 0 ? "text-rose-600" : "text-emerald-600"
+                        }`}
+                      >
+                        {entry.toBuy.toLocaleString("pt-BR")}
+                      </td>
+                      <td className="px-4 py-3 text-sm text-slate-600">
+                        {entry.nomenclature?.trim() ? entry.nomenclature : "-"}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveProjectItem(entry.id)}
+                          className="text-sm font-medium text-rose-600 hover:underline"
+                        >
+                          Remover
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </section>
     </div>
@@ -580,66 +950,151 @@ const [selectedProjectId, setSelectedProjectId] = useState(
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40 sm:w-80"
           />
         </div>
-        <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            handleAdjustStock("add");
-          }}
-          className="grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto_auto] md:items-end"
-        >
-          <label className="flex flex-col text-sm font-medium text-slate-600">
-            Componente
-            <select
-              value={adjustItemId}
-              onChange={(event) => setAdjustItemId(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+        <div className="mt-6 grid gap-6">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <h4 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
+              Novo componente
+            </h4>
+            <form
+              onSubmit={handleCreateStockItem}
+              className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end"
             >
-              <option value="">Selecione um componente</option>
-              {filteredStockItems.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.code ? `${item.code} - ` : ""}{item.name} (Atual: {item.quantity ?? 0})
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col text-sm font-medium text-slate-600">
-            Quantidade
-            <input
-              type="number"
-              min="1"
-              step="1"
-              value={adjustAmount}
-              onChange={(event) => setAdjustAmount(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-            />
-          </label>
-          <button
-            type="submit"
-            disabled={isUpdatingStock}
-            className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isUpdatingStock ? "Atualizando..." : "Adicionar"}
-          </button>
-          <button
-            type="button"
-            onClick={() => handleAdjustStock("remove")}
-            disabled={isUpdatingStock}
-            className="rounded-lg border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Remover
-          </button>
-        </form>
-        {adjustFeedback.type && (
-          <p
-            className={`mt-3 text-sm ${
-              adjustFeedback.type === "error" ? "text-rose-600" : "text-emerald-600"
-            }`}
-          >
-            {adjustFeedback.message}
-          </p>
-        )}
-      </div>
+              <label className="flex flex-col text-sm font-medium text-slate-600">
+                Codigo
+                <input
+                  type="text"
+                  value={newItemCode}
+                  onChange={(event) => setNewItemCode(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                  placeholder="Opcional"
+                />
+              </label>
+              <label className="flex flex-col text-sm font-medium text-slate-600">
+                Nome
+                <input
+                  type="text"
+                  value={newItemName}
+                  onChange={(event) => setNewItemName(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                  placeholder="Ex: Resistor 10k 1/4W"
+                  required
+                />
+              </label>
+              <label className="flex flex-col text-sm font-medium text-slate-600">
+                Quantidade inicial
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={newItemQuantity}
+                  onChange={(event) => setNewItemQuantity(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                  placeholder="0"
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={isCreatingItem}
+                className="h-10 rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60 md:h-auto md:self-end"
+              >
+                {isCreatingItem ? "Salvando..." : "Adicionar ao estoque"}
+              </button>
+              <label className="flex flex-col text-sm font-medium text-slate-600 md:col-span-2">
+                Descricao (opcional)
+                <input
+                  type="text"
+                  value={newItemDescription}
+                  onChange={(event) => setNewItemDescription(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                  placeholder="Detalhes para identificar o componente"
+                />
+              </label>
+              <label className="flex flex-col text-sm font-medium text-slate-600 md:col-span-2">
+                Localizacao (opcional)
+                <input
+                  type="text"
+                  value={newItemLocation}
+                  onChange={(event) => setNewItemLocation(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                  placeholder="Ex: Gaveta A3"
+                />
+              </label>
+            </form>
+            {newItemFeedback.type && (
+              <p
+                className={`mt-3 text-sm ${
+                  newItemFeedback.type === "error" ? "text-rose-600" : "text-emerald-600"
+                }`}
+              >
+                {newItemFeedback.message}
+              </p>
+            )}
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <h4 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
+              Ajustar estoque existente
+            </h4>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                handleAdjustStock("add");
+              }}
+              className="mt-4 grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto_auto] md:items-end"
+            >
+              <label className="flex flex-col text-sm font-medium text-slate-600">
+                Componente
+                <select
+                  value={adjustItemId}
+                  onChange={(event) => setAdjustItemId(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                >
+                  <option value="">Selecione um componente</option>
+                  {filteredStockItems.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.code ? `${item.code} - ` : ""}
+                      {item.name} (Atual: {item.quantity ?? 0})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col text-sm font-medium text-slate-600">
+                Quantidade
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={adjustAmount}
+                  onChange={(event) => setAdjustAmount(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={isUpdatingStock}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isUpdatingStock ? "Atualizando..." : "Adicionar"}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleAdjustStock("remove")}
+                disabled={isUpdatingStock}
+                className="rounded-lg border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Remover
+              </button>
+            </form>
+            {adjustFeedback.type && (
+              <p
+                className={`mt-3 text-sm ${
+                  adjustFeedback.type === "error" ? "text-rose-600" : "text-emerald-600"
+                }`}
+              >
+                {adjustFeedback.message}
+              </p>
+            )}
+          </div>
+        </div>
       <div className="mt-6 overflow-x-auto">
         <table className="min-w-full divide-y divide-slate-200">
             <thead className="bg-slate-50">
@@ -649,6 +1104,9 @@ const [selectedProjectId, setSelectedProjectId] = useState(
                 </th>
                 <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Componente
+                </th>
+                <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Descricao
                 </th>
                 <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Quantidade
@@ -661,17 +1119,20 @@ const [selectedProjectId, setSelectedProjectId] = useState(
                 key={item.id}
                 className={index % 2 === 0 ? "bg-white" : "bg-sky-50/40"}
               >
-                  <td className="px-4 py-3 text-sm font-mono text-slate-700">
-                    {item.code || "-"}
-                  </td>
-                  <td className="px-4 py-3 text-sm font-medium text-slate-700">
-                    {item.name}
-                  </td>
-                  <td className="px-4 py-3 text-right text-sm text-slate-600">
-                    {item.quantity?.toLocaleString("pt-BR") ?? 0}
-                  </td>
-                </tr>
-              ))}
+                <td className="px-4 py-3 text-sm font-mono text-slate-700">
+                  {item.code || "-"}
+                </td>
+                <td className="px-4 py-3 text-sm font-medium text-slate-700">
+                  {item.name}
+                </td>
+                <td className="px-4 py-3 text-sm text-slate-600">
+                  {item.description?.trim() ? item.description : "-"}
+                </td>
+                <td className="px-4 py-3 text-right text-sm text-slate-600">
+                  {item.quantity?.toLocaleString("pt-BR") ?? 0}
+                </td>
+              </tr>
+            ))}
             </tbody>
           </table>
         </div>
@@ -762,28 +1223,32 @@ const [selectedProjectId, setSelectedProjectId] = useState(
   };
   const catalogWithAvailability = useMemo(() => {
     return projectCatalog.map((component) => {
-      const possibleNames = [
-        component.inventoryName,
-        component.value,
-        component.code,
-        component.legacyCode,
-        ...(component.legacyNames || []),
-      ]
-        .filter(Boolean)
-        .map((value) => normalize(value));
+      const match = findInventoryMatch(component, component.value);
 
-      const match =
-        possibleNames
-          .map((candidate) => nameIndex.get(candidate))
-          .find(Boolean) ?? null;
+      const availableRaw = Number(match?.quantity ?? component.availableQuantity ?? 0);
+      const available = Number.isFinite(availableRaw) ? availableRaw : 0;
+      const quantityPerAssemblyRaw = Number(component.quantityPerAssembly ?? 1);
+      const quantityPerAssembly =
+        Number.isFinite(quantityPerAssemblyRaw) && quantityPerAssemblyRaw > 0
+          ? quantityPerAssemblyRaw
+          : 1;
 
       return {
         ...component,
-        available: match?.quantity ?? component.availableQuantity ?? 0,
-        inventoryName: match?.name ?? component.value,
+        inventoryItemId:
+          component.inventoryItemId !== undefined && component.inventoryItemId !== null
+            ? String(component.inventoryItemId)
+            : match
+              ? String(match.id)
+              : "",
+        quantityPerAssembly,
+        available,
+        inventoryName: component.inventoryName?.trim()
+          ? component.inventoryName
+          : match?.name ?? component.value,
       };
     });
-  }, [projectCatalog, nameIndex]);
+  }, [projectCatalog, nameIndex, idIndex, inventorySelectionItems]);
 
   useEffect(() => {
     if (!adjustFeedback.type) return undefined;
@@ -791,8 +1256,29 @@ const [selectedProjectId, setSelectedProjectId] = useState(
     return () => clearTimeout(timeout);
   }, [adjustFeedback]);
 
+  useEffect(() => {
+    if (!newItemFeedback.type) return undefined;
+    const timeout = setTimeout(() => setNewItemFeedback({ type: null, message: "" }), 4000);
+    return () => clearTimeout(timeout);
+  }, [newItemFeedback]);
+
   const handleStartEditing = () => {
     if (!selectedProject) return;
+    if (
+      PROJECT_EDIT_PASSWORD &&
+      PROJECT_EDIT_PASSWORD.trim() &&
+      !hasEditAccess
+    ) {
+      const providedPassword =
+        typeof window !== "undefined"
+          ? window.prompt("Informe a senha para editar os projetos:")
+          : null;
+      if (providedPassword !== PROJECT_EDIT_PASSWORD) {
+        alert("Senha incorreta. Edicao cancelada.");
+        return;
+      }
+      setHasEditAccess(true);
+    }
     const metadata = {
       name: selectedProject.metadata.name ?? "",
       customer: selectedProject.metadata.customer ?? "",
@@ -804,15 +1290,39 @@ const [selectedProjectId, setSelectedProjectId] = useState(
           ? String(selectedProject.metadata.projectValue)
           : "",
     };
-    const components = selectedProject.components.map((component) => ({
-      ...cloneComponent(component),
-      quantityPerAssembly:
-        component.quantityPerAssembly !== undefined
-          ? String(component.quantityPerAssembly)
-          : "",
-      description: component.description ?? "",
-      nomenclature: component.nomenclature ?? "",
-    }));
+    const components = selectedProject.components.map((component) => {
+      const cloned = cloneComponent(component);
+      const match = findInventoryMatch(cloned, cloned.value);
+      const inventoryItemId =
+        match?.id !== undefined
+          ? String(match.id)
+          : cloned.inventoryItemId !== undefined && cloned.inventoryItemId !== null
+            ? String(cloned.inventoryItemId)
+            : "";
+      const descriptionCandidate =
+        typeof cloned.description === "string" && cloned.description.trim()
+          ? cloned.description.trim()
+          : match?.description ?? "";
+      const nomenclatureCandidate =
+        typeof cloned.nomenclature === "string" && cloned.nomenclature.trim()
+          ? cloned.nomenclature
+          : match?.nomenclature ?? "";
+      const inventoryNameCandidate = cloned.inventoryName?.trim()
+        ? cloned.inventoryName
+        : match?.name ?? cloned.value ?? "";
+
+      return {
+        ...cloned,
+        inventoryItemId,
+        inventoryName: inventoryNameCandidate,
+        description: descriptionCandidate,
+        nomenclature: nomenclatureCandidate,
+        quantityPerAssembly:
+          cloned.quantityPerAssembly !== undefined && cloned.quantityPerAssembly !== null
+            ? String(cloned.quantityPerAssembly)
+            : "",
+      };
+    });
     setDraftProject({ metadata, components });
     setIsEditingProject(true);
   };
@@ -825,21 +1335,21 @@ const [selectedProjectId, setSelectedProjectId] = useState(
       numericValue = 0;
     }
 
-    setProjectOptions((current) => {
-      const next = current.map((project) =>
-        project.id === selectedProjectId
-          ? {
-              ...project,
-              metadata: {
-                ...project.metadata,
-                projectValue: numericValue,
-              },
-            }
-          : project,
-      );
-      persistProjectValues(next);
-      return next;
-    });
+  setProjectOptions((current) => {
+    const next = current.map((project) =>
+      project.id === selectedProjectId
+        ? {
+            ...project,
+            metadata: {
+              ...project.metadata,
+              projectValue: numericValue,
+            },
+          }
+        : project,
+    );
+    persistProjectState(next);
+    return next;
+  });
 
     if (isEditingProject) {
       setDraftProject((current) =>
@@ -850,6 +1360,105 @@ const [selectedProjectId, setSelectedProjectId] = useState(
             }
           : current,
       );
+    }
+  };
+
+  const handleCreateStockItem = async (event) => {
+    event.preventDefault();
+
+    const trimmedName = newItemName.trim();
+    const trimmedCode = newItemCode.trim();
+    const trimmedDescription = newItemDescription.trim();
+    const trimmedLocation = newItemLocation.trim();
+
+    if (!trimmedName) {
+      setNewItemFeedback({ type: "error", message: "Informe o nome do componente." });
+      return;
+    }
+
+    const quantityNumber =
+      newItemQuantity === "" ? 0 : Number(newItemQuantity);
+    if (!Number.isFinite(quantityNumber) || quantityNumber < 0) {
+      setNewItemFeedback({
+        type: "error",
+        message: "Informe uma quantidade inicial valida (zero ou positiva).",
+      });
+      return;
+    }
+
+    const existingCodes = items
+      .map((item) => (item.code ?? "").trim())
+      .filter(Boolean);
+    const normalizedExistingCodes = new Set(existingCodes.map((code) => code.toLowerCase()));
+
+    let finalCode = trimmedCode;
+    let autoAssignedCode = false;
+    if (
+      !finalCode ||
+      normalizedExistingCodes.has(finalCode.toLowerCase())
+    ) {
+      finalCode = generateNextStockCode(items);
+      autoAssignedCode = true;
+    }
+
+    const payload = {
+      name: trimmedName,
+      quantity: quantityNumber,
+    };
+    if (finalCode) payload.code = finalCode;
+    if (trimmedDescription) payload.description = trimmedDescription;
+    if (trimmedLocation) payload.location = trimmedLocation;
+
+    try {
+      setIsCreatingItem(true);
+      setNewItemFeedback({ type: null, message: "" });
+
+      const createdItem = await addItem(payload);
+      setNewItemFeedback({
+        type: "success",
+        message: `Componente cadastrado no estoque${
+          finalCode ? ` com o código ${finalCode}` : ""
+        }.`,
+      });
+
+      setNewItemCode("");
+      setNewItemName("");
+      setNewItemDescription("");
+      setNewItemQuantity("");
+      setNewItemLocation("");
+      setAdjustItemId(String(createdItem.id));
+
+      const initialQuantity = Number(createdItem.quantity ?? quantityNumber ?? 0);
+      if (initialQuantity > 0) {
+        const historyPayload = {
+          item_id: createdItem.id,
+          action: "add",
+          quantity: initialQuantity,
+          resulting_quantity: initialQuantity,
+          component_name: createdItem.name,
+          component_code: createdItem.code ?? null,
+        };
+
+        const { data: insertedHistory, error: historyInsertError } = await supabase
+          .from("historico_estoque")
+          .insert(historyPayload)
+          .select("*")
+          .single();
+
+        if (historyInsertError) {
+          console.error("Falha ao registrar historico inicial:", historyInsertError);
+          setHistoryError(historyInsertError);
+        } else if (insertedHistory) {
+          setStockHistory((current) => [insertedHistory, ...current]);
+        }
+      }
+    } catch (creationError) {
+      setNewItemFeedback({
+        type: "error",
+        message: creationError?.message ?? "Nao foi possivel cadastrar o componente.",
+      });
+    } finally {
+      setIsCreatingItem(false);
     }
   };
 
@@ -945,9 +1554,45 @@ const [selectedProjectId, setSelectedProjectId] = useState(
   const handleDraftComponentChange = (index, field, value) => {
     setDraftProject((current) => {
       if (!current) return current;
-      const nextComponents = current.components.map((component, componentIndex) =>
-        componentIndex === index ? { ...component, [field]: value } : component,
-      );
+      const nextComponents = current.components.map((component, componentIndex) => {
+        if (componentIndex !== index) return component;
+        const nextComponent = { ...component, [field]: value };
+        if (field === "value") {
+          const trimmed = value.trim();
+          nextComponent.value = trimmed;
+          if (!trimmed) {
+            nextComponent.inventoryItemId = "";
+            nextComponent.inventoryName = "";
+            nextComponent.description = "";
+            nextComponent.nomenclature = "";
+        } else {
+          const lookupComponent = {
+            ...component,
+            value: trimmed,
+            inventoryName: trimmed,
+          };
+          const match = findInventoryMatch(lookupComponent, trimmed);
+            if (match) {
+              const matchId = String(match.id);
+              const previousId = component.inventoryItemId
+                ? String(component.inventoryItemId)
+                : "";
+              const isNewMatch = matchId !== previousId;
+              nextComponent.inventoryItemId = matchId;
+              nextComponent.inventoryName = match.name;
+              nextComponent.value = trimmed;
+              nextComponent.description = match.description ?? "";
+              nextComponent.nomenclature = match.nomenclature?.trim() ?? "";
+            } else {
+              nextComponent.inventoryItemId = "";
+              nextComponent.inventoryName = trimmed;
+              nextComponent.description = "";
+              nextComponent.nomenclature = "";
+            }
+          }
+        }
+        return nextComponent;
+      });
       return { ...current, components: nextComponents };
     });
   };
@@ -975,6 +1620,7 @@ const [selectedProjectId, setSelectedProjectId] = useState(
             inventoryName: "",
             quantityPerAssembly: "1",
             includeInProject: true,
+            inventoryItemId: null,
           },
         ],
       };
@@ -1012,6 +1658,10 @@ const [selectedProjectId, setSelectedProjectId] = useState(
         cloned.inventoryName = component.inventoryName?.trim()
           ? component.inventoryName.trim()
           : trimmedValue;
+        cloned.inventoryItemId =
+          component.inventoryItemId && String(component.inventoryItemId).trim()
+            ? String(component.inventoryItemId)
+            : null;
         if (typeof component.description === "string") {
           cloned.description = component.description.trim();
         }
@@ -1032,29 +1682,107 @@ const [selectedProjectId, setSelectedProjectId] = useState(
     setProjectOptions((current) => {
       const next = current.map((project) => {
         if (project.id !== selectedProjectId) return project;
-        return {
-          ...project,
-          name: metadata.name,
-          metadata,
-          components: sanitizedComponents,
-        };
-      });
-      persistProjectValues(next);
-      return next;
-    });
+    return {
+      ...project,
+      name: metadata.name,
+      metadata,
+      components: sanitizedComponents,
+    };
+  });
+  persistProjectState(next);
+  return next;
+});
     setIsEditingProject(false);
     setDraftProject(null);
   };
 
-  const handleLoadProject = () => {
-    const nextItems = catalogWithAvailability.map((entry) => ({
-      id: entry.catalogCode || entry.code || entry.value,
-      name: entry.inventoryName,
-      available: entry.available,
-      perBoard: entry.quantityPerAssembly ?? 1,
-      nomenclature: entry.nomenclature ?? "",
-    }));
+  const handleGeneratePurchaseReport = () => {
+    const requestedQuantity = Number(boardsToProduce);
+    if (!Number.isFinite(requestedQuantity) || requestedQuantity <= 0) {
+      alert("Informe uma quantidade valida de placas.");
+      return;
+    }
+
+    const nextItems = catalogWithAvailability.map((entry) => {
+      const perBoardRaw = Number(entry.quantityPerAssembly ?? 1);
+      const perBoard =
+        Number.isFinite(perBoardRaw) && perBoardRaw > 0 ? perBoardRaw : 1;
+      const availableRaw = Number(entry.available ?? 0);
+      const available = Number.isFinite(availableRaw) ? availableRaw : 0;
+      const required = perBoard * requestedQuantity;
+      const toBuy = Math.max(0, required - available);
+
+      return {
+        id: entry.catalogCode || entry.code || entry.value,
+        code: entry.code || entry.catalogCode || null,
+        name: entry.inventoryName || entry.value,
+        available,
+        perBoard,
+        required,
+        toBuy,
+        nomenclature: entry.nomenclature ?? "",
+      };
+    });
+
     setProjectItems(nextItems);
+    setGeneratedQuantity(requestedQuantity);
+  };
+
+  const handleDownloadReport = () => {
+    if (!projectItems.length) {
+      alert("Gere o relatorio antes de exportar.");
+      return;
+    }
+
+    const doc = new jsPDF({
+      orientation: "landscape",
+      unit: "pt",
+      format: "a4",
+    });
+
+    const projectName = selectedProject?.metadata?.name ?? "Projeto";
+    const quantityText = generatedQuantity
+      ? `${priceFormatter.format(generatedQuantity)} placas`
+      : "Quantidade não informada";
+
+    doc.setFontSize(16);
+    doc.text(`Relatorio de compra - ${projectName}`, 40, 50);
+    doc.setFontSize(11);
+    doc.text(`Quantidade considerada: ${quantityText}`, 40, 70);
+    doc.text(
+      `Gerado em ${new Date().toLocaleString("pt-BR")}`,
+      40,
+      90,
+    );
+
+    const body = projectItems.map((entry) => [
+      entry.name,
+      priceFormatter.format(entry.available),
+      priceFormatter.format(entry.perBoard),
+      priceFormatter.format(entry.required),
+      priceFormatter.format(entry.toBuy),
+      entry.nomenclature?.trim() ? entry.nomenclature : "-",
+    ]);
+
+    autoTable(doc, {
+      startY: 110,
+      head: [["Componente", "Qtd necessaria"]],
+      body: projectItems.map((entry) => [
+        entry.code ? `${entry.code} - ${entry.name}` : entry.name,
+        priceFormatter.format(entry.required),
+      ]),
+      styles: { fontSize: 10 },
+      headStyles: {
+        fillColor: [15, 76, 129],
+      },
+      columnStyles: {
+        1: { halign: "right" },
+      },
+    });
+
+    const safeProjectName = projectName.replace(/[\\/:*?"<>|]/g, "_");
+    const fileName = `relatorio-compra-${safeProjectName.toLowerCase()}-${Date.now()}.pdf`;
+    doc.save(fileName);
   };
 
   const handleRemoveProjectItem = (id) => {
@@ -1063,16 +1791,7 @@ const [selectedProjectId, setSelectedProjectId] = useState(
   };
 
   const filteredStockItems = useMemo(() => {
-    const sorted = [...items].sort((a, b) => {
-      const codeA = normalize(a.code);
-      const codeB = normalize(b.code);
-      if (codeA && codeB && codeA !== codeB) {
-        return codeA.localeCompare(codeB, "pt-BR", { numeric: true });
-      }
-      if (codeA && !codeB) return -1;
-      if (!codeA && codeB) return 1;
-      return a.name.localeCompare(b.name, "pt-BR");
-    });
+    const sorted = sortInventoryItems(items);
 
     const search = normalize(stockSearch);
     if (!search) return sorted;

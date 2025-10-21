@@ -22,7 +22,6 @@ export default function InventoryForm() {
     name: '',
     description: '',
     quantity: 0,
-    location: '',
     currentPrice: '',
     lastPrice: '',
   });
@@ -38,7 +37,6 @@ export default function InventoryForm() {
           name: existing.name,
           description: existing.description || '',
           quantity: existing.quantity,
-          location: existing.location || '',
           currentPrice:
             existing.currentPrice !== null && existing.currentPrice !== undefined
               ? String(existing.currentPrice)
@@ -54,11 +52,11 @@ export default function InventoryForm() {
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    setFormState((prev) => ({ ...prev, [name]: value }));
-  };
+      setFormState((prev) => ({ ...prev, [name]: value }));
+    };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+    const handleSubmit = async (e) => {
+      e.preventDefault();
     setLoading(true);
     setError('');
     try {
@@ -73,6 +71,7 @@ export default function InventoryForm() {
         quantity: parseInt(formState.quantity, 10),
         currentPrice: parsePrice(formState.currentPrice),
         lastPrice: parsePrice(formState.lastPrice),
+        location: '',
       };
       if (isEditMode) {
         await updateItem(id, payload);
@@ -171,22 +170,9 @@ export default function InventoryForm() {
             />
           </div>
         </div>
-        <p className="text-xs text-gray-500">
-          Toda atualização de preço atual gera automaticamente um registro no histórico de valores.
-        </p>
-        <div>
-          <label className="block text-sm font-medium text-gray-700" htmlFor="location">
-            Localização
-          </label>
-          <input
-            id="location"
-            name="location"
-            type="text"
-            value={formState.location}
-            onChange={handleChange}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:ring-blue-500 focus:border-blue-500"
-          />
-        </div>
+      <p className="text-xs text-gray-500">
+        Toda atualização de preço atual gera automaticamente um registro no histórico de valores.
+      </p>
         <div className="flex items-center space-x-4">
           <button
             type="submit"

@@ -35,6 +35,11 @@ const ITEM_COLUMN_OPTIONS = {
   price_previous: ['preco_ultimo', 'preco_anterior', 'price_previous'],
 };
 
+const DEFAULT_LOCATION_ALIASES = new Set([
+  'projeto dispenser',
+  'projeto dispenser - grifit',
+]);
+
 const DEFAULT_ITEM_COLUMNS = {
   code: null,
   name: 'nome',
@@ -119,6 +124,14 @@ export function InventoryProvider({ children }) {
   };
 
 const toAppItem = (row, columns = itemColumns) => {
+  const cleanOrNull = (value) => {
+    if (value === undefined || value === null) return null;
+    return typeof value === 'string' ? value.trim() : value;
+  };
+  const cleanString = (value, fallback = '') => {
+    if (value === undefined || value === null) return fallback;
+    return typeof value === 'string' ? value.trim() : value;
+  };
   const currentPriceValue = columns.price_current ? row?.[columns.price_current] : null;
   const previousPriceValue = columns.price_previous ? row?.[columns.price_previous] : null;
   const toNumber = (value) => {
@@ -126,14 +139,19 @@ const toAppItem = (row, columns = itemColumns) => {
     return Number.isFinite(numeric) ? numeric : null;
   };
 
+  const rawLocation = cleanString(row?.[columns.location]);
+  const normalizedLocation = normalizeValue(rawLocation);
+  const shouldClearLocation =
+    !rawLocation || (normalizedLocation && DEFAULT_LOCATION_ALIASES.has(normalizedLocation));
+
   return {
     ...row,
-    code: columns.code ? row?.[columns.code] ?? null : null,
-    name: row?.[columns.name] ?? '',
-    description: row?.[columns.description] ?? '',
-    category_id: row?.[columns.category_id] ?? null,
+    code: columns.code ? cleanOrNull(row?.[columns.code]) : null,
+    name: cleanString(row?.[columns.name]),
+    description: cleanString(row?.[columns.description]),
+    category_id: cleanOrNull(row?.[columns.category_id]),
     quantity: row?.[columns.quantity] ?? 0,
-    location: row?.[columns.location] ?? '',
+    location: shouldClearLocation ? '' : rawLocation,
     currentPrice: toNumber(currentPriceValue),
     lastPrice: toNumber(previousPriceValue),
   };
@@ -146,7 +164,11 @@ const toDbItem = (item, columns = itemColumns) => {
   if ('description' in item) payload[columns.description] = item.description;
   if ('category_id' in item) payload[columns.category_id] = item.category_id;
   if ('quantity' in item) payload[columns.quantity] = item.quantity;
-  if ('location' in item) payload[columns.location] = item.location;
+  if ('location' in item) {
+    const locationValue =
+      typeof item.location === 'string' ? item.location.trim() : item.location;
+    payload[columns.location] = locationValue ? locationValue : '';
+  }
   if (columns.price_current && 'currentPrice' in item)
     payload[columns.price_current] = item.currentPrice;
   if (columns.price_previous && 'lastPrice' in item)
