@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNotifications } from '../context/NotificationContext';
 import { useInventory } from '../context/InventoryContext';
 import WltLogoMark from '../components/WltLogoMark';
 
@@ -17,6 +18,7 @@ export default function CategoriesPage() {
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState('');
   const [error, setError] = useState('');
+  const { notifyError } = useNotifications();
 
   const handleAdd = async (e) => {
     e.preventDefault();
@@ -52,7 +54,7 @@ export default function CategoriesPage() {
       try {
         await deleteCategory(id);
       } catch (err) {
-        alert('Erro ao excluir: ' + err.message);
+        notifyError('Erro ao excluir: ' + err.message);
       }
     }
   };

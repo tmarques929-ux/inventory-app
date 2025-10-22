@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient";
 import { projectDefinitions } from "../data/dispenserComponents";
 import WltLogoMark from "../components/WltLogoMark";
+import { useNotifications } from "../context/NotificationContext";
 
 const initialForm = {
   type: "cliente",
@@ -29,6 +30,7 @@ export default function ContactsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const { notifyWarning, notifyError } = useNotifications();
 
   const projectMap = useMemo(() => {
     return projectDefinitions.reduce((acc, project) => {
@@ -109,7 +111,7 @@ export default function ContactsPage() {
     event.preventDefault();
 
     if (!form.name.trim()) {
-      alert("Informe o nome do contato.");
+      notifyWarning("Informe o nome do contato.");
       return;
     }
 
@@ -171,7 +173,7 @@ export default function ContactsPage() {
       resetForm();
     } catch (err) {
       console.error("Erro ao salvar contato", err);
-      alert("Nao foi possivel salvar o contato.");
+      notifyError("Nao foi possivel salvar o contato.");
     } finally {
       setSaving(false);
     }
@@ -202,7 +204,7 @@ export default function ContactsPage() {
       }
     } catch (err) {
       console.error("Erro ao excluir contato", err);
-      alert("Nao foi possivel excluir o contato.");
+      notifyError("Nao foi possivel excluir o contato.");
     }
   };
 

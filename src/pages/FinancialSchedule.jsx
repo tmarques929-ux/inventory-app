@@ -379,20 +379,20 @@ export default function FinancialSchedule() {
               Cadastre pagamentos a fornecedores e recebimentos de clientes para organizar o caixa dos proximos dias.
             </p>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          <div className="rounded-lg border bg-slate-50 px-4 py-3 text-sm text-slate-600">
             {upcomingHighlight ? (
               <>
                 <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
                   Proximo compromisso
                 </p>
                 <p className="mt-1 font-semibold text-slate-700">
-                  {formatDateDisplay(upcomingHighlight.data_prevista)} ·{" "}
+                  {formatDateDisplay(upcomingHighlight.data_prevista)} -{" "}
                   {upcomingHighlight.tipo === "receber" ? "Receber de" : "Pagar para"}{" "}
                   {upcomingHighlight.contato_nome || "Contato sem nome"}
                 </p>
                 <p className="text-xs text-slate-500">
-                  {formatCurrency(upcomingHighlight.valor_parcela ?? upcomingHighlight.valor)} • Parcela{" "}
-                  {upcomingHighlight.parcela_numero ?? 1}/{upcomingHighlight.parcelas_total ?? 1} •{" "}
+                  {formatCurrency(upcomingHighlight.valor_parcela ?? upcomingHighlight.valor)} - Parcela{" "}
+                  {upcomingHighlight.parcela_numero ?? 1}/{upcomingHighlight.parcelas_total ?? 1} -{" "}
                   Status: {upcomingHighlight.status || "pendente"}
                 </p>
               </>
@@ -410,7 +410,7 @@ export default function FinancialSchedule() {
             <select
               value={form.type}
               onChange={handleFieldChange("type")}
-              className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+              className="mt-1 rounded-lg border px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
             >
               {TYPE_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -424,16 +424,15 @@ export default function FinancialSchedule() {
             <select
               value={form.contatoId}
               onChange={handleFieldChange("contatoId")}
-              className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+              className="mt-1 rounded-lg border px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
             >
               <option value="">Selecione um contato</option>
               {contacts.map((contact) => (
                 <option key={contact.id} value={contact.id}>
                   {contact.nome}
-                  {contact.empresa ? ` — ${contact.empresa}` : ""}
+                  {contact.empresa ? ` - ${contact.empresa}` : ""}
                 </option>
               ))}
-            </select>
           </label>
           <label className="flex flex-col text-sm font-medium text-slate-600">
             Valor total (R$)
@@ -443,7 +442,7 @@ export default function FinancialSchedule() {
               step="0.01"
               value={form.valor}
               onChange={handleFieldChange("valor")}
-              className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+              className="mt-1 rounded-lg border px-3 py-2 text-sm text-right focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
             />
           </label>
           <label className="flex flex-col text-sm font-medium text-slate-600">
@@ -453,7 +452,7 @@ export default function FinancialSchedule() {
               value={form.formaPagamento}
               onChange={handleFieldChange("formaPagamento")}
               placeholder="Ex: Boleto, Pix, Cartao..."
-              className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+              className="mt-1 rounded-lg border px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
             />
           </label>
           <label className="flex flex-col text-sm font-medium text-slate-600">
@@ -462,7 +461,7 @@ export default function FinancialSchedule() {
               type="date"
               value={form.dataEmissao}
               onChange={handleFieldChange("dataEmissao")}
-              className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+              className="mt-1 rounded-lg border px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
             />
           </label>
           <label className="flex flex-col text-sm font-medium text-slate-600">
@@ -470,7 +469,7 @@ export default function FinancialSchedule() {
             <select
               value={form.numeroParcelas}
               onChange={handleParcelCountChange}
-              className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+              className="mt-1 rounded-lg border px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
             >
               {Array.from({ length: 12 }, (_, index) => index + 1).map((count) => (
                 <option key={count} value={count}>
@@ -483,8 +482,9 @@ export default function FinancialSchedule() {
             Status inicial
             <select
               value={form.status}
+              data-status={form.status}
               onChange={handleFieldChange("status")}
-              className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+              className="mt-1 rounded-lg border px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
             >
               {statusOptionsForForm.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -500,7 +500,7 @@ export default function FinancialSchedule() {
               value={form.descricao}
               onChange={handleFieldChange("descricao")}
               placeholder="Ex: Parcelamento da NFE 12345"
-              className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+              className="mt-1 rounded-lg border px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
             />
           </label>
           <label className="flex flex-col text-sm font-medium text-slate-600 md:col-span-2 lg:col-span-3">
@@ -510,7 +510,7 @@ export default function FinancialSchedule() {
               value={form.observacoes}
               onChange={handleFieldChange("observacoes")}
               placeholder="Detalhes adicionais sobre o compromisso"
-              className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+              className="mt-1 rounded-lg border px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
             />
           </label>
 
@@ -525,7 +525,7 @@ export default function FinancialSchedule() {
                 return (
                   <div
                     key={index}
-                    className="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm md:grid-cols-2 lg:grid-cols-4"
+                    className="grid gap-3 rounded-lg border bg-slate-50 px-4 py-3 text-sm md:grid-cols-2 lg:grid-cols-4"
                   >
                     <div className="flex flex-col font-medium text-slate-600">
                       Dias apos emissao
@@ -534,7 +534,7 @@ export default function FinancialSchedule() {
                         min="0"
                         value={parcela.offsetDays}
                         onChange={handleParcelaFieldChange(index, "offsetDays")}
-                        className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                        className="mt-1 rounded-md border px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
                       />
                     </div>
                     <div className="flex flex-col font-medium text-slate-600">
@@ -543,7 +543,7 @@ export default function FinancialSchedule() {
                         type="text"
                         value={dueDate ? dueDate.toLocaleDateString("pt-BR") : "-"}
                         readOnly
-                        className="mt-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-500"
+                        className="mt-1 rounded-md border bg-white px-3 py-2 text-sm text-slate-500"
                       />
                     </div>
                     <div className="flex flex-col font-medium text-slate-600">
@@ -555,7 +555,7 @@ export default function FinancialSchedule() {
                         value={parcela.valor}
                         onChange={handleParcelaFieldChange(index, "valor")}
                         placeholder="Opcional"
-                        className="mt-1 rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                        className="mt-1 rounded-md border px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
                       />
                     </div>
                     <div className="flex flex-col justify-center text-xs text-slate-500">
@@ -579,7 +579,7 @@ export default function FinancialSchedule() {
                 value={form.adiantamentoValor}
                 onChange={handleFieldChange("adiantamentoValor")}
                 placeholder="Opcional"
-                className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                className="mt-1 rounded-lg border px-3 py-2 text-sm text-right focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
               />
             </label>
             <label className="flex flex-col text-sm font-medium text-slate-600">
@@ -588,7 +588,7 @@ export default function FinancialSchedule() {
                 type="date"
                 value={form.adiantamentoData}
                 onChange={handleFieldChange("adiantamentoData")}
-                className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                className="mt-1 rounded-lg border px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
               />
             </label>
           </div>
@@ -619,7 +619,7 @@ export default function FinancialSchedule() {
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Buscar na agenda..."
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40 sm:w-72"
+              className="w-full rounded-lg border px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40 sm:w-72"
             />
           </div>
         </div>
@@ -705,8 +705,9 @@ export default function FinancialSchedule() {
                       <td className="px-4 py-3">
                         <select
                           value={entry.status || "pendente"}
+                          data-status={(entry.status || "pendente").toLowerCase()}
                           onChange={(event) => handleStatusChange(entry.id, event.target.value)}
-                          className="rounded border border-slate-200 px-2 py-1 text-xs text-slate-600 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                          className="rounded border px-2 py-1 text-xs focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
                         >
                           {statusOptions.map((option) => (
                             <option key={option.value} value={option.value}>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { usePermissions } from "../context/PermissionsContext";
 
 const linkBaseClasses =
   "flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-colors";
@@ -13,6 +14,7 @@ const navItems = [
   { to: "/inventory", label: "Itens cadastrados", icon: "\u{1F4C2}" }, // file cabinet
   { to: "/pedidos", label: "Pedidos", icon: "\u{1F4DD}" }, // memo
   { to: "/agenda-financeira", label: "Agenda financeira", icon: "\u{1F4B0}" }, // money bag
+  { to: "/relatorios", label: "Relatorios", icon: "\u{1F4CA}" }, // bar chart
   { to: "/contatos", label: "Clientes & Fornecedores", icon: "\u{1F91D}" }, // handshake
 ];
 
@@ -22,6 +24,8 @@ export default function SideNav({ collapsed = false, onToggle }) {
   const [usdRate, setUsdRate] = useState(null);
   const [usdUpdatedAt, setUsdUpdatedAt] = useState(null);
   const [usdError, setUsdError] = useState(null);
+  const { hasPermission, role } = usePermissions();
+  const isAdmin = hasPermission("manageProjects") && role === "admin";
 
   useEffect(() => {
     let isMounted = true;
@@ -108,9 +112,14 @@ export default function SideNav({ collapsed = false, onToggle }) {
       {user && (
         <div className="border-t border-slate-200 px-4 py-4">
           {!collapsed && (
-            <p className="mb-2 truncate text-xs text-slate-500" title={user.email}>
-              {user.email}
-            </p>
+            <>
+              <p className="mb-1 text-xs font-semibold text-slate-500">
+                {isAdmin ? "Perfil: Administrador" : "Perfil: Operador"}
+              </p>
+              <p className="mb-2 truncate text-xs text-slate-500" title={user.email}>
+                {user.email}
+              </p>
+            </>
           )}
           <button
             type="button"

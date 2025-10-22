@@ -3,3 +3,22 @@
 @tailwind utilities;
 
 /* Custom global styles can be added here. */
+select[data-status="recebido"],
+select[data-status="pago"] {
+  background-color: #d1fae5;
+  color: #047857;
+  border-color: #6ee7b7;
+}
+
+select[data-status="pendente"] {
+  background-color: #fef3c7;
+  color: #b45309;
+  border-color: #fcd34d;
+}
+
+select[data-status="cancelado"] {
+  background-color: #fee2e2;
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+

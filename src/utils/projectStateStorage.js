@@ -4,15 +4,24 @@ const PROJECT_STATE_COOKIE_PREFIX = "iap_state_chunk_";
 const PROJECT_STATE_COOKIE_COUNT = "iap_state_chunk_count";
 const PROJECT_STATE_COOKIE_TTL = 60 * 60 * 24 * 365 * 2; // dois anos
 
+const shouldUseCookieStorage = () => {
+  if (typeof window === "undefined") return false;
+  const host = window.location?.hostname;
+  if (!host) return false;
+  // Avoid giant cookies breaking requests while developing on localhost.
+  if (host === "localhost" || host === "127.0.0.1") return false;
+  return true;
+};
+
 const getCookieValue = (name) => {
-  if (typeof document === "undefined") return null;
+  if (!shouldUseCookieStorage()) return null;
   const pattern = new RegExp(`(?:^|; )${name.replace(/([.$?*|{}()[\]\\/+^])/g, "\\$1")}=([^;]*)`);
   const match = document.cookie.match(pattern);
   return match ? decodeURIComponent(match[1]) : null;
 };
 
 const clearProjectStateCookies = () => {
-  if (typeof document === "undefined") return;
+  if (!shouldUseCookieStorage()) return;
   const countValue = getCookieValue(PROJECT_STATE_COOKIE_COUNT);
   const count = Number(countValue);
   if (Number.isFinite(count) && count > 0) {
@@ -24,7 +33,7 @@ const clearProjectStateCookies = () => {
 };
 
 const writeProjectStateCookie = (jsonPayload) => {
-  if (typeof document === "undefined") return;
+  if (!shouldUseCookieStorage()) return;
   try {
     const encoded = window.btoa(unescape(encodeURIComponent(jsonPayload)));
     const chunkSize = 3500;
@@ -51,7 +60,7 @@ const writeProjectStateCookie = (jsonPayload) => {
 };
 
 const readProjectStateCookie = () => {
-  if (typeof document === "undefined") return null;
+  if (!shouldUseCookieStorage()) return null;
   try {
     const countValue = getCookieValue(PROJECT_STATE_COOKIE_COUNT);
     const count = Number(countValue);
@@ -80,4 +89,3 @@ export {
   writeProjectStateCookie,
   readProjectStateCookie,
 };
-

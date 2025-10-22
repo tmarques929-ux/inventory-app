@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useInventory } from '../context/InventoryContext';
 import WltLogoMark from '../components/WltLogoMark';
+import { useNotifications } from '../context/NotificationContext';
+import { usePermissions } from '../context/PermissionsContext';
 
 /**
  * InventoryForm handles creation and editing of items. When an `id` is provided
@@ -17,6 +19,9 @@ export default function InventoryForm() {
     updateItem,
     fetchItems,
   } = useInventory();
+  const { hasPermission } = usePermissions();
+  const { notifyError } = useNotifications();
+  const canManageStock = hasPermission("manageStock");
   const isEditMode = Boolean(id);
   const [formState, setFormState] = useState({
     name: '',
@@ -27,6 +32,13 @@ export default function InventoryForm() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!canManageStock) {
+      notifyError("Voce nao tem permissao para alterar o estoque.");
+      navigate("/inventory", { replace: true });
+    }
+  }, [canManageStock, navigate, notifyError]);
 
   // On mount, populate form state if editing an existing item
   useEffect(() => {
@@ -50,17 +62,20 @@ export default function InventoryForm() {
     }
   }, [id, isEditMode, items]);
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-      setFormState((prev) => ({ ...prev, [name]: value }));
-    };
+  const handleChange = (event) => {
+    const { name, value } = event.target;
+    setFormState((prev) => ({ ...prev, [name]: value }));
+  };
 
-    const handleSubmit = async (e) => {
-      e.preventDefault();
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (!canManageStock) {
+      notifyError("Voce nao tem permissao para alterar o estoque.");
+      return;
+    }
     setLoading(true);
     setError('');
     try {
-      // Convert quantity to integer
       const parsePrice = (value) => {
         if (value === '' || value === null || value === undefined) return null;
         const numeric = Number(value);
@@ -87,6 +102,9 @@ export default function InventoryForm() {
     }
   };
 
+  if (!canManageStock) {
+    return null;
+  }
   return (
     <div className="max-w-lg mx-auto">
       <div className="mb-4 flex items-center gap-3">
@@ -189,3 +207,4 @@ export default function InventoryForm() {
     </div>
   );
 }
+

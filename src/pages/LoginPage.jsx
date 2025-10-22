@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
 import loginBackground from '../assets/wlt-logo-mark.svg';
+import { useNotifications } from '../context/NotificationContext';
 
 const initialFeedback = { type: '', text: '' };
 
@@ -188,17 +189,19 @@ export default function LoginPage() {
 }
 
 function ConnectionPingButton({ disabled }) {
+  const { notifySuccess, notifyError } = useNotifications();
+
   const handlePing = async () => {
     try {
       const { data, error } = await supabase.auth.getSession();
       if (error) {
-        alert(`${CONNECTION_ERROR_PREFIX}${error.message}`);
+        notifyError(`${CONNECTION_ERROR_PREFIX}${error.message}`);
       } else {
         console.log('PING getSession =>', { data, error });
-        alert(CONNECTION_SUCCESS);
+        notifySuccess(CONNECTION_SUCCESS);
       }
     } catch (err) {
-      alert(`Falha de rede: ${err.message}`);
+      notifyError(`Falha de rede: ${err.message}`);
     }
   };
 
@@ -213,4 +216,5 @@ function ConnectionPingButton({ disabled }) {
     </button>
   );
 }
+
 

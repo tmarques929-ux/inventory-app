@@ -4,6 +4,8 @@ import autoTable from "jspdf-autotable";
 import { useInventory } from "../context/InventoryContext";
 import { supabase } from "../supabaseClient";
 import WltLogoMark from "../components/WltLogoMark";
+import { useNotifications } from "../context/NotificationContext";
+import { usePermissions } from "../context/PermissionsContext";
 import {
   dispenserProjectComponents,
   dispenserProjectMetadata,
@@ -19,6 +21,10 @@ import {
   writeProjectStateCookie,
   readProjectStateCookie,
 } from "../utils/projectStateStorage";
+import ProjectsTab from "./dashboard/ProjectsTab";
+import StockTab from "./dashboard/StockTab";
+import HistoryTab from "./dashboard/HistoryTab";
+import ReportsTab from "./dashboard/ReportsTab";
 
 const cloneComponent = (component) => {
   const cloned = { ...component };
@@ -51,6 +57,7 @@ const ALL_TABS = [
   { id: "projects", label: "Projetos" },
   { id: "stock", label: "Estoque" },
   { id: "history", label: "Historico estoque" },
+  { id: "reports", label: "Relatorios" },
 ];
 
 const PROJECT_EDIT_PASSWORD = import.meta.env.VITE_PROJECT_EDIT_PASSWORD || "wlt-edit";
@@ -120,6 +127,10 @@ export default function Dashboard({
   heroSubtitle = "Visualize os componentes de cada projeto, acompanhe o estoque e organize o envio para montagem.",
 }) {
   const { items, loading, error, updateItem, addItem } = useInventory();
+  const { hasPermission } = usePermissions();
+  const canManageProjects = hasPermission("manageProjects");
+  const canManageStock = hasPermission("manageStock");
+  const { notifyWarning, notifyError } = useNotifications();
 
   const allowedTabsKey = Array.isArray(allowedTabs) ? allowedTabs.join("|") : "all";
   const allowedTabIds = useMemo(() => {
@@ -154,38 +165,41 @@ export default function Dashboard({
 
   const persistProjectState = (projects) => {
     if (typeof window === "undefined") return;
-  try {
-    const payload = projects.reduce((acc, project) => {
-      const metadata = { ...project.metadata };
-      if (metadata.projectValue !== undefined) {
-        const numericValue = Number(metadata.projectValue);
-        metadata.projectValue = Number.isFinite(numericValue) ? numericValue : 0;
-      }
-      acc[project.id] = {
-        metadata,
-        components: project.components.map((component) => {
-          const cloned = cloneComponent(component);
-          if (
-            cloned.quantityPerAssembly !== undefined &&
-            cloned.quantityPerAssembly !== null
-          ) {
-            const quantityValue = Number(cloned.quantityPerAssembly);
-            cloned.quantityPerAssembly = Number.isFinite(quantityValue) ? quantityValue : 1;
-          }
-          return cloned;
-        }),
-      };
-      return acc;
-    }, {});
-    const serialized = JSON.stringify(payload);
-    window.localStorage.setItem(PROJECT_STATE_STORAGE_KEY, serialized);
-    window.localStorage.removeItem(PROJECT_VALUES_STORAGE_KEY);
-    writeProjectStateCookie(serialized);
-  } catch (err) {
-    console.error("Erro ao salvar configuracao de projetos", err);
-    clearProjectStateCookies();
-  }
-};
+    try {
+      const payload = projects.reduce((acc, project) => {
+        const metadata = { ...project.metadata };
+        if (metadata.projectValue !== undefined) {
+          const numericValue = Number(metadata.projectValue);
+          metadata.projectValue = Number.isFinite(numericValue) ? numericValue : 0;
+        }
+        acc[project.id] = {
+          metadata,
+          components: project.components.map((component) => {
+            const cloned = cloneComponent(component);
+            if (cloned.quantityPerAssembly !== undefined && cloned.quantityPerAssembly !== null) {
+              const quantityValue = Number(cloned.quantityPerAssembly);
+              cloned.quantityPerAssembly = Number.isFinite(quantityValue) ? quantityValue : 1;
+            }
+            return cloned;
+          }),
+        };
+        return acc;
+      }, {});
+      const serialized = JSON.stringify(payload);
+      window.localStorage.setItem(PROJECT_STATE_STORAGE_KEY, serialized);
+      const valueMap = projects.reduce((acc, project) => {
+        const rawValue = project?.metadata?.projectValue;
+        const numeric = Number(rawValue);
+        acc[project.id] = Number.isFinite(numeric) ? numeric : 0;
+        return acc;
+      }, {});
+      window.localStorage.setItem(PROJECT_VALUES_STORAGE_KEY, JSON.stringify(valueMap));
+      writeProjectStateCookie(serialized);
+    } catch (err) {
+      console.error("Erro ao salvar configuracao de projetos", err);
+      clearProjectStateCookies();
+    }
+  };
 
 const [selectedProjectId, setSelectedProjectId] = useState(
     INITIAL_PROJECT_OPTIONS[0]?.id ?? "dispenser",
@@ -443,718 +457,7 @@ const [selectedProjectId, setSelectedProjectId] = useState(
   return null;
 };
 
-  const renderProjectsTab = () => (
-    <div className="space-y-6">
-      <section className="rounded-xl bg-white p-6 shadow-sm">
-        <label
-          htmlFor="project-selector"
-          className="block text-sm font-medium text-slate-600"
-        >
-          Projeto
-        </label>
-        <select
-          id="project-selector"
-          value={selectedProjectId}
-          onChange={(event) => setSelectedProjectId(event.target.value)}
-          className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40 md:w-80"
-        >
-          {projectOptions.map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.name}
-            </option>
-          ))}
-        </select>
-      </section>
-  
-      <section className="rounded-xl bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="flex-1 space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
-              Projeto selecionado
-            </p>
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <h2 className="text-xl font-semibold text-slate-800">
-                  {selectedProject.metadata.name}
-                </h2>
-                <p className="text-sm text-slate-500">
-                  Cliente: {selectedProject.metadata.customer}.{" "}
-                  {selectedProject.metadata.notes}
-                </p>
-                <p className="text-xs font-medium text-slate-500">
-                  Codigo placa pronta:{" "}
-                  <span className="font-semibold text-slate-700">
-                    {selectedProject.metadata.finishedBoardCode || "-"}
-                  </span>
-                </p>
-              </div>
-              <label className="flex flex-col text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-                Valor atual (R$)
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={
-                    selectedProject.metadata.projectValue !== undefined &&
-                    selectedProject.metadata.projectValue !== null
-                      ? selectedProject.metadata.projectValue
-                      : 0
-                  }
-                  onChange={handleProjectValueChange}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-right text-xs text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40 lg:w-24"
-                />
-              </label>
-            </div>
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
-            <label className="flex flex-col text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-              Quantidade de placas
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={boardsToProduce}
-                onChange={(event) => setBoardsToProduce(event.target.value)}
-                className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-right text-xs text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40 lg:w-28"
-                placeholder="0"
-              />
-            </label>
-            <button
-              type="button"
-              onClick={handleGeneratePurchaseReport}
-              className="inline-flex items-center justify-center rounded-lg border border-sky-200 px-4 py-2 text-sm font-semibold text-sky-600 transition hover:border-sky-300 hover:bg-sky-50"
-            >
-              Gerar relatorio de compra
-            </button>
-            {!isEditingProject && (
-              <button
-                type="button"
-                onClick={handleStartEditing}
-                className="inline-flex items-center justify-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-100"
-              >
-                Editar projeto
-              </button>
-            )}
-          </div>
-        </div>
-        <p className="mt-2 text-xs text-slate-400">
-          Informe a quantidade de placas desejada e utilize o relatorio para calcular o que precisa ser comprado.
-        </p>
-  
-        {isEditingProject && draftProject ? (
-          <div
-            ref={editPanelRef}
-            className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4 sm:p-6"
-          >
-            <h3 className="text-lg font-semibold text-slate-700">Editar projeto</h3>
-            <p className="mt-1 text-sm text-slate-500">
-              Ajuste os dados do projeto e a lista de componentes conforme necessario.
-            </p>
-            <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              <label className="flex flex-col text-sm font-medium text-slate-600">
-                Nome do projeto
-                <input
-                  type="text"
-                  value={draftProject.metadata.name}
-                  onChange={(event) => handleDraftMetadataChange("name", event.target.value)}
-                  className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-                />
-              </label>
-              <label className="flex flex-col text-sm font-medium text-slate-600">
-                Cliente
-                <input
-                  type="text"
-                  value={draftProject.metadata.customer}
-                  onChange={(event) => handleDraftMetadataChange("customer", event.target.value)}
-                  className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-                />
-              </label>
-              <label className="flex flex-col text-sm font-medium text-slate-600 sm:col-span-2">
-                Notas
-                <textarea
-                  rows={3}
-                  value={draftProject.metadata.notes}
-                  onChange={(event) => handleDraftMetadataChange("notes", event.target.value)}
-                  className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-                />
-              </label>
-              <label className="flex flex-col text-sm font-medium text-slate-600 sm:col-span-2">
-                Observacao
-                <textarea
-                  rows={2}
-                  value={draftProject.metadata.observation}
-                  onChange={(event) => handleDraftMetadataChange("observation", event.target.value)}
-                  className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-                />
-              </label>
-            </div>
-  
-            <div className="mt-6 overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 text-sm">
-            <thead className="bg-slate-100">
-              <tr>
-                <th className="px-3 py-2 text-left font-semibold uppercase tracking-wide text-slate-500">
-                  Valor / codigo
-                </th>
-                <th className="px-3 py-2 text-right font-semibold uppercase tracking-wide text-slate-500">
-                  Qtd / placa
-                </th>
-                <th className="px-3 py-2 text-left font-semibold uppercase tracking-wide text-slate-500">
-                  Nomenclatura
-                </th>
-                <th className="px-3 py-2 text-center font-semibold uppercase tracking-wide text-slate-500">
-                  Acoes
-                </th>
-              </tr>
-            </thead>
-                <tbody className="divide-y divide-slate-200 bg-white">
-                  {draftProject.components.map((component, index) => (
-                    <tr key={index}>
-                      <td className="px-3 py-2 align-top">
-                        <input
-                          type="text"
-                          list={`inventory-suggestions-${index}`}
-                          value={component.value}
-                          onChange={(event) =>
-                            handleDraftComponentChange(index, "value", event.target.value)
-                          }
-                          className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-                        />
-                        <datalist id={`inventory-suggestions-${index}`}>
-                          {inventorySelectionItems
-                            .filter((stockItem) => {
-                              const typedValue = component.value ?? "";
-                              const normalizedTyped = normalize(typedValue);
-                              if (!normalizedTyped) return true;
-                              const nameCandidate = normalize(stockItem.name);
-                              return nameCandidate && nameCandidate.includes(normalizedTyped);
-                            })
-                            .slice(0, 25)
-                            .map((stockItem) => (
-                              <option
-                                key={stockItem.id}
-                                value={stockItem.name}
-                                label={
-                                  stockItem.code
-                                    ? `${stockItem.name} (${stockItem.code})`
-                                    : stockItem.name
-                                }
-                              />
-                            ))}
-                        </datalist>
-                      </td>
-                    <td className="px-3 py-2 align-top text-right">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={component.quantityPerAssembly}
-                        onChange={(event) =>
-                          handleDraftComponentChange(
-                            index,
-                            "quantityPerAssembly",
-                            event.target.value,
-                          )
-                        }
-                        className="w-24 rounded-lg border border-slate-300 px-2 py-1 text-right text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-                      />
-                    </td>
-                    <td className="px-3 py-2 align-top">
-                      <input
-                        type="text"
-                        value={component.nomenclature ?? ""}
-                        onChange={(event) =>
-                          handleDraftComponentChange(index, "nomenclature", event.target.value)
-                        }
-                        className="w-full rounded-lg border border-slate-300 px-2 py-1 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-                      />
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveDraftComponent(index)}
-                        className="text-sm font-semibold text-rose-600 transition hover:text-rose-700"
-                        >
-                          Remover
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-  
-            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <button
-                type="button"
-                onClick={handleAddDraftComponent}
-                className="inline-flex items-center justify-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:border-slate-300 hover:bg-slate-100"
-              >
-                Adicionar componente
-              </button>
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <button
-                  type="button"
-                  onClick={handleSaveProject}
-                  className="inline-flex min-w-[160px] items-center justify-center rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700"
-                >
-                  Salvar alteracoes
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCancelEditing}
-                  className="inline-flex min-w-[120px] items-center justify-center rounded-lg border border-transparent px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-200"
-                >
-                  Cancelar
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <>
-            <div className="mt-6 overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-50">
-                  <tr>
-                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Componente
-                  </th>
-                  <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Disponivel
-                    </th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Qtd / placa
-                    </th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Nomenclatura
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {catalogWithAvailability.map((entry) => (
-                <tr key={entry.catalogCode || entry.code || entry.value}>
-                    <td className="px-4 py-3">
-                      <div className="text-sm font-medium text-slate-800">
-                        {entry.code ? `${entry.code} — ${entry.value}` : entry.value}
-                      </div>
-                        <div className="text-xs text-slate-500">
-                          {entry.description || "Sem descricao"}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-600">
-                        {entry.available.toLocaleString("pt-BR")}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-600">
-                        {entry.quantityPerAssembly?.toLocaleString("pt-BR") ?? 1}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-600">
-                        {entry.nomenclature?.trim() ? entry.nomenclature : "-"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-  
-            {selectedProject.metadata.observation && (
-              <p className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
-                {selectedProject.metadata.observation}
-              </p>
-            )}
-          </>
-        )}
-      </section>
-  
-      <section className="rounded-xl bg-white p-6 shadow-sm">
-        <h3 className="text-lg font-semibold text-slate-800">
-          Relatorio de compra para montagem
-        </h3>
-        {projectItems.length === 0 ? (
-          <p className="mt-3 text-sm text-slate-500">
-            Informe a quantidade de placas e clique em "Gerar relatorio de compra" para preencher esta tabela.
-          </p>
-        ) : (
-          <>
-            {generatedQuantity !== null && (
-              <p className="mt-2 text-xs text-slate-500">
-        Relatorio calculado para{" "}
-        <span className="font-semibold text-slate-700">
-          {generatedQuantity.toLocaleString("pt-BR")}
-        </span>{" "}
-        placas.
-      </p>
-    )}
-    <div className="mt-4 flex justify-end">
-      <button
-        type="button"
-        onClick={handleDownloadReport}
-        className="inline-flex items-center justify-center rounded-lg border border-sky-200 bg-white px-4 py-2 text-sm font-semibold text-sky-600 transition hover:border-sky-300 hover:bg-sky-50"
-      >
-        Baixar PDF
-      </button>
-    </div>
-    <div className="mt-4 overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Componente
-                    </th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Disponivel
-                    </th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Qtd / placa
-                    </th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Qtd necessaria
-                    </th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Necessario comprar
-                    </th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Nomenclatura
-                    </th>
-                    <th className="px-4 py-2" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {projectItems.map((entry) => (
-                    <tr key={entry.id}>
-                    <td className="px-4 py-3 text-sm font-medium text-slate-700">
-                      {entry.code ? `${entry.code} - ${entry.name}` : entry.name}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-slate-600">
-                        {entry.available.toLocaleString("pt-BR")}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-600">
-                        {entry.perBoard.toLocaleString("pt-BR")}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-600">
-                        {entry.required.toLocaleString("pt-BR")}
-                      </td>
-                      <td
-                        className={`px-4 py-3 text-sm font-semibold ${
-                          entry.toBuy > 0 ? "text-rose-600" : "text-emerald-600"
-                        }`}
-                      >
-                        {entry.toBuy.toLocaleString("pt-BR")}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-600">
-                        {entry.nomenclature?.trim() ? entry.nomenclature : "-"}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveProjectItem(entry.id)}
-                          className="text-sm font-medium text-rose-600 hover:underline"
-                        >
-                          Remover
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </>
-        )}
-      </section>
-    </div>
-  );
-  
-  const renderStockTab = () => (
-    <div className="space-y-6">
-      <section className="rounded-xl bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-xl font-semibold text-slate-800">
-              Estoque cadastrado
-            </h2>
-            <p className="text-sm text-slate-500">
-              Lista completa dos componentes.
-            </p>
-          </div>
-          <input
-            type="text"
-            value={stockSearch}
-            onChange={(event) => setStockSearch(event.target.value)}
-            placeholder="Buscar por codigo, nome ou descricao..."
-            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40 sm:w-80"
-          />
-        </div>
-        <div className="mt-6 grid gap-6">
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-            <h4 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
-              Novo componente
-            </h4>
-            <form
-              onSubmit={handleCreateStockItem}
-              className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end"
-            >
-              <label className="flex flex-col text-sm font-medium text-slate-600">
-                Codigo
-                <input
-                  type="text"
-                  value={newItemCode}
-                  onChange={(event) => setNewItemCode(event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-                  placeholder="Opcional"
-                />
-              </label>
-              <label className="flex flex-col text-sm font-medium text-slate-600">
-                Nome
-                <input
-                  type="text"
-                  value={newItemName}
-                  onChange={(event) => setNewItemName(event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-                  placeholder="Ex: Resistor 10k 1/4W"
-                  required
-                />
-              </label>
-              <label className="flex flex-col text-sm font-medium text-slate-600">
-                Quantidade inicial
-                <input
-                  type="number"
-                  min="0"
-                  step="1"
-                  value={newItemQuantity}
-                  onChange={(event) => setNewItemQuantity(event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-                  placeholder="0"
-                />
-              </label>
-              <button
-                type="submit"
-                disabled={isCreatingItem}
-                className="h-10 rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60 md:h-auto md:self-end"
-              >
-                {isCreatingItem ? "Salvando..." : "Adicionar ao estoque"}
-              </button>
-              <label className="flex flex-col text-sm font-medium text-slate-600 md:col-span-2">
-                Descricao (opcional)
-                <input
-                  type="text"
-                  value={newItemDescription}
-                  onChange={(event) => setNewItemDescription(event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-                  placeholder="Detalhes para identificar o componente"
-                />
-              </label>
-              <label className="flex flex-col text-sm font-medium text-slate-600 md:col-span-2">
-                Localizacao (opcional)
-                <input
-                  type="text"
-                  value={newItemLocation}
-                  onChange={(event) => setNewItemLocation(event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-                  placeholder="Ex: Gaveta A3"
-                />
-              </label>
-            </form>
-            {newItemFeedback.type && (
-              <p
-                className={`mt-3 text-sm ${
-                  newItemFeedback.type === "error" ? "text-rose-600" : "text-emerald-600"
-                }`}
-              >
-                {newItemFeedback.message}
-              </p>
-            )}
-          </div>
-          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-            <h4 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500">
-              Ajustar estoque existente
-            </h4>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                handleAdjustStock("add");
-              }}
-              className="mt-4 grid gap-3 md:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto_auto] md:items-end"
-            >
-              <label className="flex flex-col text-sm font-medium text-slate-600">
-                Componente
-                <select
-                  value={adjustItemId}
-                  onChange={(event) => setAdjustItemId(event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-                >
-                  <option value="">Selecione um componente</option>
-                  {filteredStockItems.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.code ? `${item.code} - ` : ""}
-                      {item.name} (Atual: {item.quantity ?? 0})
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex flex-col text-sm font-medium text-slate-600">
-                Quantidade
-                <input
-                  type="number"
-                  min="1"
-                  step="1"
-                  value={adjustAmount}
-                  onChange={(event) => setAdjustAmount(event.target.value)}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-                />
-              </label>
-              <button
-                type="submit"
-                disabled={isUpdatingStock}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isUpdatingStock ? "Atualizando..." : "Adicionar"}
-              </button>
-              <button
-                type="button"
-                onClick={() => handleAdjustStock("remove")}
-                disabled={isUpdatingStock}
-                className="rounded-lg border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Remover
-              </button>
-            </form>
-            {adjustFeedback.type && (
-              <p
-                className={`mt-3 text-sm ${
-                  adjustFeedback.type === "error" ? "text-rose-600" : "text-emerald-600"
-                }`}
-              >
-                {adjustFeedback.message}
-              </p>
-            )}
-          </div>
-        </div>
-      <div className="mt-6 overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200">
-            <thead className="bg-slate-50">
-              <tr>
-                <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Codigo
-                </th>
-                <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Componente
-                </th>
-                <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Descricao
-                </th>
-                <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Quantidade
-                </th>
-              </tr>
-            </thead>
-          <tbody className="divide-y divide-slate-100">
-            {filteredStockItems.map((item, index) => (
-              <tr
-                key={item.id}
-                className={index % 2 === 0 ? "bg-white" : "bg-sky-50/40"}
-              >
-                <td className="px-4 py-3 text-sm font-mono text-slate-700">
-                  {item.code || "-"}
-                </td>
-                <td className="px-4 py-3 text-sm font-medium text-slate-700">
-                  {item.name}
-                </td>
-                <td className="px-4 py-3 text-sm text-slate-600">
-                  {item.description?.trim() ? item.description : "-"}
-                </td>
-                <td className="px-4 py-3 text-right text-sm text-slate-600">
-                  {item.quantity?.toLocaleString("pt-BR") ?? 0}
-                </td>
-              </tr>
-            ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-    </div>
-  );
-
-  const renderHistoryTab = () => {
-    return (
-      <div className="space-y-6">
-        <section className="rounded-xl bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="text-xl font-semibold text-slate-800">
-                Historico de movimentacao
-              </h2>
-              <p className="text-sm text-slate-500">
-                Registros de entradas e saidas realizadas manualmente neste painel.
-              </p>
-            </div>
-          </div>
-
-          {historyError ? (
-            <p className="mt-6 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600">
-              Erro ao carregar historico: {historyError.message}
-            </p>
-          ) : stockHistory.length === 0 ? (
-            <p className="mt-6 rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
-              Ainda nao ha movimentacoes registradas. Utilize os botoes de adicionar ou
-              remover estoque para registrar a primeira movimentacao.
-            </p>
-          ) : (
-            <div className="mt-6 overflow-x-auto">
-              <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Data e horario
-                    </th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Movimento
-                    </th>
-                    <th className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Componente
-                    </th>
-                    <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Quantidade
-                    </th>
-                    <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Estoque apos
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {stockHistory.map((entry) => (
-                    <tr key={entry.id} className="bg-white">
-                      <td className="px-4 py-3 text-sm text-slate-600">
-                        {entry.created_at
-                          ? new Date(entry.created_at).toLocaleString("pt-BR")
-                          : "-"}
-                      </td>
-                      <td
-                        className={`px-4 py-3 text-sm font-medium ${
-                          entry.action === "add" ? "text-emerald-600" : "text-rose-600"
-                        }`}
-                      >
-                        {entry.action === "add" ? "Entrada" : "Saida"}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-700">
-                        {entry.component_code ? `${entry.component_code} - ` : ""}
-                        {entry.component_name}
-                      </td>
-                      <td className="px-4 py-3 text-right text-sm text-slate-600">
-                        {Number(entry.quantity ?? 0).toLocaleString("pt-BR")}
-                      </td>
-                      <td className="px-4 py-3 text-right text-sm text-slate-600">
-                        {Number(entry.resulting_quantity ?? 0).toLocaleString("pt-BR")}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      </div>
-    );
-  };
-  const catalogWithAvailability = useMemo(() => {
+const catalogWithAvailability = useMemo(() => {
     return projectCatalog.map((component) => {
       const match = findInventoryMatch(component, component.value);
 
@@ -1196,6 +499,10 @@ const [selectedProjectId, setSelectedProjectId] = useState(
   }, [newItemFeedback]);
 
   const handleStartEditing = () => {
+    if (!canManageProjects) {
+      notifyError("Voce nao tem permissao para editar projetos.");
+      return;
+    }
     if (!selectedProject) return;
     if (
       PROJECT_EDIT_PASSWORD &&
@@ -1207,7 +514,7 @@ const [selectedProjectId, setSelectedProjectId] = useState(
           ? window.prompt("Informe a senha para editar os projetos:")
           : null;
       if (providedPassword !== PROJECT_EDIT_PASSWORD) {
-        alert("Senha incorreta. Edicao cancelada.");
+        notifyError("Senha incorreta. Edicao cancelada.");
         return;
       }
       setHasEditAccess(true);
@@ -1298,6 +605,10 @@ const [selectedProjectId, setSelectedProjectId] = useState(
 
   const handleCreateStockItem = async (event) => {
     event.preventDefault();
+    if (!canManageStock) {
+      notifyError("Voce nao tem permissao para alterar o estoque.");
+      return;
+    }
 
     const trimmedName = newItemName.trim();
     const trimmedCode = newItemCode.trim();
@@ -1396,6 +707,10 @@ const [selectedProjectId, setSelectedProjectId] = useState(
   };
 
   const handleAdjustStock = async (action) => {
+    if (!canManageStock) {
+      notifyError("Voce nao tem permissao para alterar o estoque.");
+      return;
+    }
     if (!adjustItemId) {
       setAdjustFeedback({ type: "error", message: "Selecione um componente." });
       return;
@@ -1475,6 +790,7 @@ const [selectedProjectId, setSelectedProjectId] = useState(
   };
 
   const handleDraftMetadataChange = (field, value) => {
+    if (!canManageProjects) return;
     setDraftProject((current) => {
       if (!current) return current;
       return {
@@ -1485,6 +801,7 @@ const [selectedProjectId, setSelectedProjectId] = useState(
   };
 
   const handleDraftComponentChange = (index, field, value) => {
+    if (!canManageProjects) return;
     setDraftProject((current) => {
       if (!current) return current;
       const nextComponents = current.components.map((component, componentIndex) => {
@@ -1531,6 +848,7 @@ const [selectedProjectId, setSelectedProjectId] = useState(
   };
 
   const handleRemoveDraftComponent = (index) => {
+    if (!canManageProjects) return;
     setDraftProject((current) => {
       if (!current) return current;
       const nextComponents = current.components.filter(
@@ -1541,6 +859,7 @@ const [selectedProjectId, setSelectedProjectId] = useState(
   };
 
   const handleAddDraftComponent = () => {
+    if (!canManageProjects) return;
     setDraftProject((current) => {
       if (!current) return current;
       return {
@@ -1561,6 +880,10 @@ const [selectedProjectId, setSelectedProjectId] = useState(
   };
 
   const handleSaveProject = () => {
+    if (!canManageProjects) {
+      notifyError("Voce nao tem permissao para salvar alteracoes de projetos.");
+      return;
+    }
     if (!draftProject) return;
 
     const metadata = {
@@ -1572,7 +895,7 @@ const [selectedProjectId, setSelectedProjectId] = useState(
     };
 
     if (!metadata.name) {
-      alert("Informe um nome para o projeto.");
+      notifyWarning("Informe um nome para o projeto.");
       return;
     }
 
@@ -1608,7 +931,7 @@ const [selectedProjectId, setSelectedProjectId] = useState(
       .filter(Boolean);
 
     if (sanitizedComponents.length === 0) {
-      alert("Adicione pelo menos um componente ao projeto.");
+      notifyWarning("Adicione pelo menos um componente ao projeto.");
       return;
     }
 
@@ -1632,7 +955,7 @@ const [selectedProjectId, setSelectedProjectId] = useState(
   const handleGeneratePurchaseReport = () => {
     const requestedQuantity = Number(boardsToProduce);
     if (!Number.isFinite(requestedQuantity) || requestedQuantity <= 0) {
-      alert("Informe uma quantidade valida de placas.");
+      notifyWarning("Informe uma quantidade valida de placas.");
       return;
     }
 
@@ -1663,7 +986,7 @@ const [selectedProjectId, setSelectedProjectId] = useState(
 
   const handleDownloadReport = () => {
     if (!projectItems.length) {
-      alert("Gere o relatorio antes de exportar.");
+      notifyWarning("Gere o relatorio antes de exportar.");
       return;
     }
 
@@ -1767,7 +1090,61 @@ const [selectedProjectId, setSelectedProjectId] = useState(
     );
   }
 
+  const projectsTabProps = {
+    projectOptions,
+    canEditProject: canManageProjects,
+    selectedProjectId,
+    onSelectProject: setSelectedProjectId,
+    selectedProject,
+    onProjectValueChange: handleProjectValueChange,
+    boardsToProduce,
+    onBoardsToProduceChange: setBoardsToProduce,
+    onGenerateReport: handleGeneratePurchaseReport,
+    isEditingProject,
+    onStartEditing: handleStartEditing,
+    draftProject,
+    editPanelRef,
+    onDraftMetadataChange: handleDraftMetadataChange,
+    onDraftComponentChange: handleDraftComponentChange,
+    onRemoveDraftComponent: handleRemoveDraftComponent,
+    onAddDraftComponent: handleAddDraftComponent,
+    onSaveProject: handleSaveProject,
+    onCancelEditing: handleCancelEditing,
+    inventorySelectionItems,
+    normalize,
+    catalogWithAvailability,
+    projectItems,
+    generatedQuantity,
+    onDownloadReport: handleDownloadReport,
+    onRemoveProjectItem: handleRemoveProjectItem,
+  };
 
+  const stockTabProps = {
+    stockSearch,
+    canManageStock,
+    onStockSearchChange: setStockSearch,
+    onCreateStockItem: handleCreateStockItem,
+    newItemCode,
+    onNewItemCodeChange: setNewItemCode,
+    newItemName,
+    onNewItemNameChange: setNewItemName,
+    newItemQuantity,
+    onNewItemQuantityChange: setNewItemQuantity,
+    isCreatingItem,
+    newItemDescription,
+    onNewItemDescriptionChange: setNewItemDescription,
+    newItemLocation,
+    onNewItemLocationChange: setNewItemLocation,
+    newItemFeedback,
+    filteredStockItems,
+    adjustItemId,
+    onAdjustItemIdChange: setAdjustItemId,
+    adjustAmount,
+    onAdjustAmountChange: setAdjustAmount,
+    onAdjustStock: handleAdjustStock,
+    isUpdatingStock,
+    adjustFeedback,
+  };
 
 
 
@@ -1814,14 +1191,38 @@ const [selectedProjectId, setSelectedProjectId] = useState(
         </div>
       )}
 
-      {activeTab === "projects"
-        ? renderProjectsTab()
-        : activeTab === "stock"
-        ? renderStockTab()
-        : renderHistoryTab()}
+      {(() => {
+        switch (activeTab) {
+          case "projects":
+            return <ProjectsTab {...projectsTabProps} />;
+          case "stock":
+            return <StockTab {...stockTabProps} />;
+          case "history":
+            return <HistoryTab historyError={historyError} stockHistory={stockHistory} />;
+          case "reports":
+            return <ReportsTab />;
+          default:
+            return <ProjectsTab {...projectsTabProps} />;
+        }
+      })()}
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

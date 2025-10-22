@@ -3,13 +3,53 @@ import { supabase } from "../supabaseClient";
 import { projectDefinitions } from "../data/dispenserComponents";
 import WltLogoMark from "../components/WltLogoMark";
 
+const ORDER_PHASES = [
+  {
+    value: "em_processo",
+    label: "Em processo",
+    badgeClass: "bg-sky-100 text-sky-700 ring-1 ring-inset ring-sky-300",
+  },
+  {
+    value: "esperando_componentes",
+    label: "Esperando componentes",
+    badgeClass: "bg-amber-100 text-amber-700 ring-1 ring-inset ring-amber-300",
+  },
+  {
+    value: "pronto_envio",
+    label: "Pronto para envio",
+    badgeClass: "bg-emerald-100 text-emerald-700 ring-1 ring-inset ring-emerald-300",
+  },
+  {
+    value: "entregue",
+    label: "Entregue",
+    badgeClass: "bg-rose-100 text-rose-700 ring-1 ring-inset ring-rose-300",
+  },
+];
+
+const ORDER_PHASE_LOOKUP = ORDER_PHASES.reduce((acc, phase) => {
+  acc[phase.value] = phase;
+  return acc;
+}, {});
+// Mantem compatibilidade com registros antigos que usavam "finalizado".
+ORDER_PHASE_LOOKUP.finalizado = ORDER_PHASE_LOOKUP.entregue;
+const DEFAULT_ORDER_PHASE = ORDER_PHASES[0].value;
+
 const initialForm = {
   nfe: "",
   contatoId: "",
   quantidade: "",
   projetoId: "",
+  dataPedido: "",
   dataEntrega: "",
+  ajusteValor: "",
+  observacoes: "",
+  nfeUrl: "",
+  fase: DEFAULT_ORDER_PHASE,
 };
+
+const NFE_BUCKET = "nfes";
+const MAX_NFE_SIZE = 5 * 1024 * 1024; // 5MB
+const ACCEPTED_NFE_TYPES = ["application/pdf", "application/xml", "text/xml"];
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
@@ -25,6 +65,11 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [nfeFile, setNfeFile] = useState(null);
+  const [fileInputKey, setFileInputKey] = useState(() => Date.now());
+  const [downloadingId, setDownloadingId] = useState(null);
+  const [removeExistingNfe, setRemoveExistingNfe] = useState(false);
 
   const contactMap = useMemo(() => {
     return contacts.reduce((acc, contact) => {
@@ -56,6 +101,7 @@ export default function OrdersPage() {
   }, [orders]);
 
   useEffect(() => {
+    if (editingId) return;
     setForm((prev) => {
       const current = typeof prev.nfe === "string" ? prev.nfe.trim() : "";
 
@@ -72,7 +118,7 @@ export default function OrdersPage() {
 
       return prev;
     });
-  }, [nextNfeNumber]);
+  }, [nextNfeNumber, editingId]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -129,6 +175,10 @@ export default function OrdersPage() {
         const enrichedContacts = (contactsResponse.data ?? []).map((contact) => ({
           ...contact,
           projectIds: assignments[contact.id] ?? [],
+          displayName:
+            typeof contact.empresa === "string" && contact.empresa.trim()
+              ? contact.empresa.trim()
+              : contact.nome,
         }));
         setContacts(enrichedContacts);
 
@@ -177,36 +227,93 @@ export default function OrdersPage() {
 
   const selectedProject = useMemo(() => {
     if (!form.projetoId) return null;
-    return availableProjects.find((project) => project.id === form.projetoId) ?? null;
+    return (
+      availableProjects.find((project) => project.id === form.projetoId) ??
+      projectDefinitions.find((project) => project.id === form.projetoId) ??
+      null
+    );
   }, [availableProjects, form.projetoId]);
+
+  const projectOptions = useMemo(() => {
+    if (!form.projetoId) return availableProjects;
+    if (availableProjects.some((project) => project.id === form.projetoId)) return availableProjects;
+    const fallback = projectDefinitions.find((project) => project.id === form.projetoId);
+    return fallback ? [...availableProjects, fallback] : availableProjects;
+  }, [availableProjects, form.projetoId]);
+
+  const normalizeDecimal = (value) => {
+    if (typeof value === "number") {
+      return Number.isFinite(value) ? value : 0;
+    }
+    if (typeof value === "string" && value.trim()) {
+      const trimmed = value.trim();
+      const normalized = trimmed.includes(",")
+        ? trimmed.replace(/\./g, "").replace(",", ".")
+        : trimmed;
+      const result = Number.parseFloat(normalized);
+      return Number.isFinite(result) ? result : 0;
+    }
+    return 0;
+  };
 
   const unitPrice = selectedProject ? getProjectUnitPrice(selectedProject.id) : 0;
   const quantityNumber = Number(form.quantidade) || 0;
-  const totalPrice = Number.isFinite(unitPrice * quantityNumber)
+  const basePrice = Number.isFinite(unitPrice * quantityNumber)
     ? Number((unitPrice * quantityNumber).toFixed(2))
     : 0;
+  const adjustmentNumber = normalizeDecimal(form.ajusteValor);
+  const finalPrice = Number.isFinite(basePrice + adjustmentNumber)
+    ? Number((basePrice + adjustmentNumber).toFixed(2))
+    : basePrice;
 
   useEffect(() => {
     if (!availableProjects.length) return;
+    if (editingId) return;
     if (!availableProjects.find((project) => project.id === form.projetoId)) {
       setForm((prev) => ({ ...prev, projetoId: availableProjects[0].id }));
     }
-  }, [availableProjects, form.projetoId]);
+  }, [availableProjects, form.projetoId, editingId]);
 
   const filteredOrders = useMemo(() => {
     if (!search.trim()) return orders;
     const normalized = search.toLowerCase();
     return orders.filter((entry) => {
+      const phaseLabel =
+        ORDER_PHASE_LOOKUP[entry.fase]?.label ?? ORDER_PHASE_LOOKUP[DEFAULT_ORDER_PHASE].label;
+      const contact = contactMap[entry.contato_id];
+      const companyName =
+        typeof contact?.empresa === "string" && contact.empresa.trim()
+          ? contact.empresa.trim()
+          : null;
+      const contactPerson =
+        typeof contact?.nome === "string" && contact.nome.trim() ? contact.nome.trim() : null;
       return [
         entry.nfe,
+        companyName,
+        contactPerson,
         entry.contato_nome,
         entry.placa_codigo,
         entry.projeto_nome,
+        entry.data_pedido,
+        entry.data_entrega,
+        entry.observacoes,
+        entry.nfe_url,
+        phaseLabel,
       ]
         .filter(Boolean)
-        .some((field) => field.toLowerCase().includes(normalized));
+        .some((field) => String(field).toLowerCase().includes(normalized));
     });
-  }, [orders, search]);
+  }, [orders, search, contacts]);
+
+  const clearSelectedNfeFile = () => {
+    setNfeFile(null);
+    setFileInputKey(Date.now());
+  };
+
+  const resetNfeControls = () => {
+    clearSelectedNfeFile();
+    setRemoveExistingNfe(false);
+  };
 
   const handleFieldChange = (field) => (event) => {
     const value = event.target.value;
@@ -215,6 +322,34 @@ export default function OrdersPage() {
       return;
     }
     setForm((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleNfeFileChange = (event) => {
+    const file = event.target.files?.[0] ?? null;
+    if (!file) {
+      clearSelectedNfeFile();
+      setRemoveExistingNfe(false);
+      return;
+    }
+
+    if (file.size > MAX_NFE_SIZE) {
+      alert("O arquivo da NFE excede o limite de 5MB.");
+      event.target.value = "";
+      clearSelectedNfeFile();
+      setRemoveExistingNfe(false);
+      return;
+    }
+
+    if (file.type && !ACCEPTED_NFE_TYPES.includes(file.type)) {
+      alert("Envie apenas arquivos PDF ou XML da nota fiscal.");
+      event.target.value = "";
+      clearSelectedNfeFile();
+      setRemoveExistingNfe(false);
+      return;
+    }
+
+    setNfeFile(file);
+    setRemoveExistingNfe(false);
   };
 
   const handleSubmit = async (event) => {
@@ -232,41 +367,120 @@ export default function OrdersPage() {
     }
 
     const nfeNumber = Number.parseInt(trimmedNfe, 10);
-    if (!Number.isFinite(nfeNumber) || nfeNumber !== nextNfeNumber) {
+    if (!Number.isFinite(nfeNumber)) {
+      alert("Numero de pedido invalido.");
+      return;
+    }
+
+    if (!editingId && nfeNumber !== nextNfeNumber) {
       alert(`O proximo numero de pedido disponivel e ${nextNfeNumber}.`);
       return;
     }
 
     const contact = selectedContact;
-    const project = availableProjects.find((item) => item.id === form.projetoId) ?? availableProjects[0];
+    const project =
+      availableProjects.find((item) => item.id === form.projetoId) ??
+      projectDefinitions.find((item) => item.id === form.projetoId) ??
+      availableProjects[0];
 
     if (!project) {
       alert("Associe pelo menos uma placa ao cliente antes de registrar o pedido.");
       return;
     }
 
-    const payload = {
-      nfe: trimmedNfe,
-      contato_id: form.contatoId,
-      contato_nome: contact?.nome ?? "",
-      quantidade: Number(form.quantidade) || 0,
-      projeto_id: project.id,
-      projeto_nome: project.name,
-      placa_codigo: project.finishedBoardCode,
-      data_entrega: form.dataEntrega || null,
-      valor: totalPrice,
-    };
+    const contactIdForReset = form.contatoId;
+    const previousNfePath = form.nfeUrl || null;
+    let currentNfePath = previousNfePath;
+    const pathsToRemove = [];
 
     try {
       setSaving(true);
-      const { data, error: insertError } = await supabase
-        .from("pedidos")
-        .insert(payload)
-        .select("*")
-        .single();
-      if (insertError) throw insertError;
-      setOrders((current) => [data, ...current]);
-      setForm((prev) => ({ ...initialForm, contatoId: prev.contatoId }));
+      setError(null);
+
+      if (nfeFile) {
+        const extension = (() => {
+          const raw = nfeFile.name.split(".").pop();
+          if (!raw) return "pdf";
+          return raw.toLowerCase().replace(/[^a-z0-9]/g, "") || "pdf";
+        })();
+        const storagePath = `pedidos/${trimmedNfe}-${Date.now()}.${extension}`;
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from(NFE_BUCKET)
+          .upload(storagePath, nfeFile, {
+            cacheControl: "3600",
+            upsert: true,
+            contentType: nfeFile.type || undefined,
+          });
+        if (uploadError) throw uploadError;
+        currentNfePath = uploadData?.path ?? storagePath;
+
+        if (previousNfePath && previousNfePath !== currentNfePath) {
+          pathsToRemove.push(previousNfePath);
+        }
+      } else if (removeExistingNfe && previousNfePath) {
+        pathsToRemove.push(previousNfePath);
+        currentNfePath = null;
+      } else if (removeExistingNfe) {
+        currentNfePath = null;
+      }
+
+      const displayContactName =
+        typeof contact?.empresa === "string" && contact.empresa.trim()
+          ? contact.empresa.trim()
+          : contact?.nome ?? "";
+
+      const payload = {
+        nfe: trimmedNfe,
+        contato_id: form.contatoId,
+        contato_nome: displayContactName,
+        quantidade: Number(form.quantidade) || 0,
+        projeto_id: project.id,
+        projeto_nome: project.name,
+        placa_codigo: project.finishedBoardCode,
+        data_pedido: form.dataPedido || null,
+        data_entrega: form.dataEntrega || null,
+        valor_base: basePrice,
+        ajuste_valor: adjustmentNumber,
+        valor: finalPrice,
+        observacoes: form.observacoes?.trim() || null,
+        nfe_url: currentNfePath,
+        fase: form.fase || DEFAULT_ORDER_PHASE,
+      };
+
+      if (editingId) {
+        const { data, error: updateError } = await supabase
+          .from("pedidos")
+          .update(payload)
+          .eq("id", editingId)
+          .select("*")
+          .single();
+        if (updateError) throw updateError;
+        setOrders((current) => current.map((entry) => (entry.id === editingId ? data : entry)));
+        setEditingId(null);
+        setForm({
+          ...initialForm,
+          contatoId: data?.contato_id ?? contactIdForReset ?? "",
+        });
+      } else {
+        const { data, error: insertError } = await supabase
+          .from("pedidos")
+          .insert(payload)
+          .select("*")
+          .single();
+        if (insertError) throw insertError;
+        setOrders((current) => [data, ...current]);
+        setForm({ ...initialForm, contatoId: contactIdForReset ?? "" });
+      }
+
+      if (pathsToRemove.length > 0) {
+        const { error: removeError } = await supabase.storage
+          .from(NFE_BUCKET)
+          .remove(pathsToRemove);
+        if (removeError) {
+          console.warn("Nao foi possivel remover arquivos antigos de NFE:", removeError);
+        }
+      }
+      resetNfeControls();
     } catch (err) {
       console.error("Erro ao salvar pedido", err);
       setError(err);
@@ -275,15 +489,82 @@ export default function OrdersPage() {
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!confirm("Remover este pedido?")) return;
+  const handleEdit = (entry) => {
+    setEditingId(entry.id);
+    resetNfeControls();
+    setForm({
+      nfe: entry.nfe ?? "",
+      contatoId: entry.contato_id ?? "",
+      quantidade:
+        entry.quantidade !== null && entry.quantidade !== undefined
+          ? String(entry.quantidade)
+          : "",
+      projetoId: entry.projeto_id ?? "",
+      dataPedido: entry.data_pedido ?? "",
+      dataEntrega: entry.data_entrega ?? "",
+      ajusteValor:
+        entry.ajuste_valor !== null &&
+        entry.ajuste_valor !== undefined &&
+        Number(entry.ajuste_valor) !== 0
+          ? String(entry.ajuste_valor)
+          : "",
+      observacoes: entry.observacoes ?? "",
+      nfeUrl: entry.nfe_url ?? "",
+      fase: entry.fase ?? DEFAULT_ORDER_PHASE,
+    });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    resetNfeControls();
+    setForm((prev) => ({ ...initialForm, contatoId: prev.contatoId ?? "" }));
+  };
+
+  const handleDelete = async (entry) => {
+    const label = entry.nfe ? `Remover o pedido ${entry.nfe}?` : "Remover este pedido?";
+    if (!confirm(label)) return;
     try {
-      const { error: deleteError } = await supabase.from("pedidos").delete().eq("id", id);
+      const { error: deleteError } = await supabase.from("pedidos").delete().eq("id", entry.id);
       if (deleteError) throw deleteError;
-      setOrders((current) => current.filter((entry) => entry.id !== id));
+      setOrders((current) => current.filter((item) => item.id !== entry.id));
+
+      if (entry.nfe_url) {
+        const { error: removeError } = await supabase.storage
+          .from(NFE_BUCKET)
+          .remove([entry.nfe_url]);
+        if (removeError) {
+          console.warn("Nao foi possivel remover a NFE associada:", removeError);
+        }
+      }
+
+      if (editingId === entry.id) {
+        setEditingId(null);
+        resetNfeControls();
+        setForm((prev) => ({ ...initialForm, contatoId: prev.contatoId ?? "" }));
+      }
     } catch (err) {
       console.error("Erro ao excluir pedido", err);
       alert("Nao foi possivel excluir o pedido.");
+    }
+  };
+
+  const handleDownloadNfe = async (path, id) => {
+    if (!path) return;
+    try {
+      setDownloadingId(id ?? path);
+      const { data, error } = await supabase.storage
+        .from(NFE_BUCKET)
+        .createSignedUrl(path, 60);
+      if (error) throw error;
+      const url = data?.signedUrl;
+      if (url && typeof window !== "undefined") {
+        window.open(url, "_blank", "noopener");
+      }
+    } catch (err) {
+      console.error("Erro ao baixar NFE", err);
+      alert("Nao foi possivel baixar a nota fiscal.");
+    } finally {
+      setDownloadingId(null);
     }
   };
 
@@ -297,6 +578,13 @@ export default function OrdersPage() {
         <p className="text-sm text-slate-500">
           Registre as placas vendidas para cada cliente e acompanhe as datas de entrega e faturamento.
         </p>
+
+        {editingId && (
+          <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+            Editando o pedido <span className="font-semibold">#{form.nfe || "sem numero"}</span>.
+            Atualize os dados abaixo e salve para aplicar as alteracoes.
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           <label className="flex flex-col text-sm font-medium text-slate-600">
@@ -319,7 +607,17 @@ export default function OrdersPage() {
               <option value="">Selecione um cliente</option>
               {clientContacts.map((contact) => (
                 <option key={contact.id} value={contact.id}>
-                  {contact.nome}
+                  {(() => {
+                    const companyLabel = contact.displayName ?? contact.nome;
+                    if (
+                      contact.nome &&
+                      companyLabel &&
+                      contact.nome.trim().toLowerCase() !== companyLabel.trim().toLowerCase()
+                    ) {
+                      return `${companyLabel} — ${contact.nome}`;
+                    }
+                    return companyLabel;
+                  })()}
                 </option>
               ))}
             </select>
@@ -331,8 +629,8 @@ export default function OrdersPage() {
               onChange={handleFieldChange("projetoId")}
               className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
             >
-              {availableProjects.length === 0 && <option value="">Nenhuma placa disponivel</option>}
-              {availableProjects.map((project) => (
+              {projectOptions.length === 0 && <option value="">Nenhuma placa disponivel</option>}
+              {projectOptions.map((project) => (
                 <option key={project.id} value={project.id}>
                   {project.finishedBoardCode} - {project.name}
                 </option>
@@ -342,8 +640,16 @@ export default function OrdersPage() {
           {selectedContact && (
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600 md:col-span-2 lg:col-span-3">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-                Placas vinculadas a {selectedContact.nome}
+                Placas vinculadas a{" "}
+                {selectedContact.displayName ?? selectedContact.empresa ?? selectedContact.nome}
               </p>
+              {selectedContact.displayName &&
+                selectedContact.nome &&
+                selectedContact.displayName.toLowerCase() !== selectedContact.nome.toLowerCase() && (
+                  <p className="mt-1 text-xs text-slate-500">
+                    Responsável: <span className="font-medium text-slate-600">{selectedContact.nome}</span>
+                  </p>
+                )}
               {linkedProjects.length > 0 ? (
                 <ul className="mt-2 flex flex-wrap gap-2">
                   {linkedProjects.map((project) => (
@@ -381,6 +687,15 @@ export default function OrdersPage() {
             />
           </label>
           <label className="flex flex-col text-sm font-medium text-slate-600">
+            Data do pedido
+            <input
+              type="date"
+              value={form.dataPedido}
+              onChange={handleFieldChange("dataPedido")}
+              className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+            />
+          </label>
+          <label className="flex flex-col text-sm font-medium text-slate-600">
             Data para entrega
             <input
               type="date"
@@ -399,22 +714,140 @@ export default function OrdersPage() {
             />
           </label>
           <label className="flex flex-col text-sm font-medium text-slate-600">
-            Valor total (R$)
+            Fase do pedido
+            <select
+              value={form.fase}
+              onChange={handleFieldChange("fase")}
+              className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+            >
+              {ORDER_PHASES.map((phase) => (
+                <option key={phase.value} value={phase.value}>
+                  {phase.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex flex-col text-sm font-medium text-slate-600">
+            Valor base (R$)
             <input
               type="text"
-              value={formatCurrency(totalPrice)}
+              value={formatCurrency(basePrice)}
               readOnly
               className="mt-1 rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-right font-semibold text-slate-700 focus:outline-none"
             />
           </label>
-          <div className="flex items-end">
+          <label className="flex flex-col text-sm font-medium text-slate-600">
+            Ajuste adicional / Desconto (R$)
+            <input
+              type="text"
+              inputMode="decimal"
+              value={form.ajusteValor}
+              onChange={handleFieldChange("ajusteValor")}
+              placeholder="Ex: 150 ou -75"
+              className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+            />
+          </label>
+          <label className="flex flex-col text-sm font-medium text-slate-600">
+            Valor final (R$)
+            <input
+              type="text"
+              value={formatCurrency(finalPrice)}
+              readOnly
+              className="mt-1 rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-right font-semibold text-slate-700 focus:outline-none"
+            />
+          </label>
+          <label className="flex flex-col text-sm font-medium text-slate-600 md:col-span-2 lg:col-span-3">
+            Nota fiscal (PDF ou XML)
+            <input
+              key={fileInputKey}
+              type="file"
+              accept=".pdf,.xml"
+              onChange={handleNfeFileChange}
+              disabled={saving}
+              className="mt-1 block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40 file:mr-3 file:rounded-md file:border-0 file:bg-slate-200 file:px-3 file:py-1 file:text-sm file:font-medium file:text-slate-700"
+            />
+            <div className="mt-2 space-y-1 text-xs text-slate-500">
+              {nfeFile ? (
+                <>
+                  <p>
+                    Arquivo selecionado:{" "}
+                    <span className="font-medium text-slate-600">{nfeFile.name}</span>
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      clearSelectedNfeFile();
+                      setRemoveExistingNfe(false);
+                    }}
+                    className="text-left font-medium text-rose-600 hover:underline"
+                  >
+                    Limpar arquivo selecionado
+                  </button>
+                </>
+              ) : form.nfeUrl && !removeExistingNfe ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadNfe(form.nfeUrl, "form-download")}
+                    disabled={downloadingId === "form-download"}
+                    className="text-left font-medium text-sky-600 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {downloadingId === "form-download" ? "Gerando link..." : "Baixar arquivo atual"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRemoveExistingNfe(true)}
+                    className="text-left font-medium text-rose-600 hover:underline"
+                  >
+                    Remover arquivo atual
+                  </button>
+                </>
+              ) : form.nfeUrl && removeExistingNfe ? (
+                <>
+                  <p className="font-medium text-rose-600">
+                    O arquivo atual sera removido ao salvar.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setRemoveExistingNfe(false)}
+                    className="text-left font-medium text-sky-600 hover:underline"
+                  >
+                    Desfazer remocao
+                  </button>
+                </>
+              ) : (
+                <p>Opcional: anexe a NFE em PDF ou XML para manter o historico.</p>
+              )}
+            </div>
+          </label>
+          <label className="flex flex-col text-sm font-medium text-slate-600 md:col-span-2 lg:col-span-3">
+            Observacoes
+            <textarea
+              value={form.observacoes}
+              onChange={handleFieldChange("observacoes")}
+              rows={3}
+              placeholder="Anote combinacoes especiais, acordos ou detalhes relevantes."
+              className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+            />
+          </label>
+          <div className="flex items-end gap-3 md:col-span-2 lg:col-span-3">
             <button
               type="submit"
               disabled={saving}
               className="w-full rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {saving ? "Salvando..." : "Registrar pedido"}
+              {saving ? "Salvando..." : editingId ? "Atualizar pedido" : "Registrar pedido"}
             </button>
+            {editingId && (
+              <button
+                type="button"
+                onClick={handleCancelEdit}
+                disabled={saving}
+                className="w-full rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancelar
+              </button>
+            )}
           </div>
         </form>
       </section>
@@ -449,50 +882,150 @@ export default function OrdersPage() {
                   <th className="px-4 py-2 text-left">Cliente</th>
                   <th className="px-4 py-2 text-left">Placa</th>
                   <th className="px-4 py-2 text-right">Quantidade</th>
-                  <th className="px-4 py-2 text-right">Valor</th>
+                  <th className="px-4 py-2 text-right">Valor base</th>
+                  <th className="px-4 py-2 text-right">Ajuste</th>
+                  <th className="px-4 py-2 text-right">Valor final</th>
+                  <th className="px-4 py-2 text-left">Fase</th>
+                  <th className="px-4 py-2 text-left">Pedido em</th>
                   <th className="px-4 py-2 text-left">Entrega</th>
                   <th className="px-4 py-2 text-left">Criado em</th>
+                  <th className="px-4 py-2 text-left">NFE</th>
+                  <th className="px-4 py-2 text-left">Observacoes</th>
                   <th className="px-4 py-2" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
-                {filteredOrders.map((entry) => (
-                  <tr key={entry.id}>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-600">{entry.nfe}</td>
-                    <td className="px-4 py-3 text-slate-700">{entry.contato_nome || "-"}</td>
-                    <td className="px-4 py-3 text-slate-600">
-                      <div className="space-y-1">
-                        <p className="font-semibold text-slate-700">{entry.projeto_nome || "-"}</p>
-                        <p className="text-xs text-slate-400">{entry.placa_codigo || "-"}</p>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-right text-slate-600">
-                      {Number(entry.quantidade ?? 0).toLocaleString("pt-BR")}
-                    </td>
-                    <td className="px-4 py-3 text-right font-semibold text-slate-700">
-                      {formatCurrency(entry.valor)}
-                    </td>
-                    <td className="px-4 py-3 text-slate-500">
-                      {entry.data_entrega
-                        ? new Date(entry.data_entrega).toLocaleDateString("pt-BR")
-                        : "-"}
-                    </td>
-                    <td className="px-4 py-3 text-slate-400">
-                      {entry.created_at
-                        ? new Date(entry.created_at).toLocaleString("pt-BR")
-                        : "-"}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <button
-                        type="button"
-                        onClick={() => handleDelete(entry.id)}
-                        className="text-sm font-medium text-rose-600 hover:underline"
+                {filteredOrders.map((entry) => {
+                  const baseValue =
+                    entry.valor_base !== null && entry.valor_base !== undefined
+                      ? Number(entry.valor_base)
+                      : entry.valor !== null && entry.valor !== undefined
+                      ? Number(entry.valor) - (Number(entry.ajuste_valor) || 0)
+                      : 0;
+                  const adjustmentValue =
+                    entry.ajuste_valor !== null && entry.ajuste_valor !== undefined
+                      ? Number(entry.ajuste_valor)
+                      : 0;
+                  const finalValue =
+                    entry.valor !== null && entry.valor !== undefined
+                      ? Number(entry.valor)
+                      : baseValue + adjustmentValue;
+                  const phaseMeta =
+                    ORDER_PHASE_LOOKUP[entry.fase] ?? ORDER_PHASE_LOOKUP[DEFAULT_ORDER_PHASE];
+                  const contactInfo = contactMap[entry.contato_id];
+                  const companyName =
+                    typeof contactInfo?.empresa === "string" && contactInfo.empresa.trim()
+                      ? contactInfo.empresa.trim()
+                      : null;
+                  const contactPerson =
+                    typeof contactInfo?.nome === "string" && contactInfo.nome.trim()
+                      ? contactInfo.nome.trim()
+                      : null;
+                  const displayCompany = companyName || entry.contato_nome || "-";
+
+                  return (
+                    <tr key={entry.id}>
+                      <td className="px-4 py-3 font-mono text-xs text-slate-600">{entry.nfe}</td>
+                      <td className="px-4 py-3 text-slate-700">
+                        <p className="font-semibold text-slate-700">{displayCompany}</p>
+                        {contactPerson &&
+                          (!companyName ||
+                            contactPerson.toLowerCase() !== companyName.toLowerCase()) && (
+                            <p className="text-xs text-slate-500">Contato: {contactPerson}</p>
+                          )}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        <div className="space-y-1">
+                          <p className="font-semibold text-slate-700">{entry.projeto_nome || "-"}</p>
+                          <p className="text-xs text-slate-400">{entry.placa_codigo || "-"}</p>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-600">
+                        {Number(entry.quantidade ?? 0).toLocaleString("pt-BR")}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-600">
+                        {formatCurrency(baseValue)}
+                      </td>
+                      <td
+                        className={`px-4 py-3 text-right ${
+                          adjustmentValue > 0
+                            ? "text-emerald-600"
+                            : adjustmentValue < 0
+                            ? "text-rose-600"
+                            : "text-slate-500"
+                        }`}
                       >
-                        Remover
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                        {adjustmentValue === 0 ? "-" : formatCurrency(adjustmentValue)}
+                      </td>
+                      <td className="px-4 py-3 text-right font-semibold text-slate-700">
+                        {formatCurrency(finalValue)}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        <span
+                          className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${phaseMeta.badgeClass}`}
+                        >
+                          {phaseMeta.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-500">
+                        {entry.data_pedido
+                          ? new Date(entry.data_pedido).toLocaleDateString("pt-BR")
+                          : "-"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-500">
+                        {entry.data_entrega
+                          ? new Date(entry.data_entrega).toLocaleDateString("pt-BR")
+                          : "-"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-400">
+                        {entry.created_at
+                          ? new Date(entry.created_at).toLocaleString("pt-BR")
+                          : "-"}
+                      </td>
+                      <td className="px-4 py-3 text-slate-500">
+                        {entry.nfe_url ? (
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadNfe(entry.nfe_url, entry.id)}
+                            disabled={downloadingId === entry.id}
+                            className="text-sm font-medium text-sky-600 hover:underline disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {downloadingId === entry.id ? "Gerando link..." : "Baixar NFE"}
+                          </button>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-slate-500">
+                        {entry.observacoes ? (
+                          <p className="max-w-xs whitespace-pre-wrap break-words text-slate-600">
+                            {entry.observacoes}
+                          </p>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="flex justify-end gap-3">
+                          <button
+                            type="button"
+                            onClick={() => handleEdit(entry)}
+                            className="text-sm font-medium text-sky-600 hover:underline"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(entry)}
+                            className="text-sm font-medium text-rose-600 hover:underline"
+                          >
+                            Remover
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -501,3 +1034,7 @@ export default function OrdersPage() {
     </div>
   );
 }
+
+
+
+

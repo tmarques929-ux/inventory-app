@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useInventory } from "../context/InventoryContext";
 import WltLogoMark from "../components/WltLogoMark";
+import { useNotifications } from "../context/NotificationContext";
+import { usePermissions } from "../context/PermissionsContext";
 
 /**
  * InventoryList renders a table of all items currently in inventory. Items can
@@ -21,6 +23,9 @@ export default function InventoryList() {
   const [pendingDelete, setPendingDelete] = useState(null);
   const [deleteError, setDeleteError] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
+  const { hasPermission } = usePermissions();
+  const { notifyError } = useNotifications();
+  const canManageStock = hasPermission("manageStock");
 
   useEffect(() => {
     fetchItems();
@@ -45,6 +50,10 @@ export default function InventoryList() {
   if (error) return <p>Erro ao carregar itens: {error.message}</p>;
 
   const requestDelete = (item) => {
+    if (!canManageStock) {
+      notifyError("Voce nao tem permissao para alterar o estoque.");
+      return;
+    }
     setPendingDelete(item);
     setDeleteError("");
   };
@@ -57,6 +66,10 @@ export default function InventoryList() {
 
   const confirmDelete = async () => {
     if (!pendingDelete) return;
+    if (!canManageStock) {
+      notifyError("Voce nao tem permissao para alterar o estoque.");
+      return;
+    }
     setIsDeleting(true);
     try {
       await deleteItem(pendingDelete.id);
@@ -75,12 +88,18 @@ export default function InventoryList() {
           <WltLogoMark className="h-10 w-auto" title="Logo WLT" />
           <h1 className="text-2xl font-semibold">Estoque</h1>
         </div>
-        <Link
-          to="/inventory/new"
-          className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
-        >
-          Novo item
-        </Link>
+        {canManageStock ? (
+          <Link
+            to="/inventory/new"
+            className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+          >
+            Novo item
+          </Link>
+        ) : (
+          <span className="rounded border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-400">
+            Sem permissao para criar
+          </span>
+        )}
       </div>
       <div className="mb-4">
         <input
@@ -91,6 +110,11 @@ export default function InventoryList() {
           className="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 md:w-1/2"
         />
       </div>
+      {!canManageStock && (
+        <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+          Voce possui acesso somente para leitura. Acoes de inclusao ou exclusao estao restritas a operadores autorizados.
+        </p>
+      )}
       {pendingDelete && (
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
           <p>
@@ -153,6 +177,7 @@ export default function InventoryList() {
                     >
                       Editar
                     </Link>
+                  {canManageStock ? (
                     <button
                       type="button"
                       onClick={() => requestDelete(item)}
@@ -160,11 +185,16 @@ export default function InventoryList() {
                     >
                       Excluir
                     </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
+                  ) : (
+                    <span className="text-xs font-medium uppercase tracking-wider text-slate-400">
+                      Sem acesso
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))
+          )}
+        </tbody>
         </table>
       </div>
     </div>
