@@ -56,6 +56,38 @@ const formatCurrency = (value) =>
     Number(value) || 0,
   );
 
+const parseDateStrict = (value) => {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      const [year, month, day] = trimmed.split("-").map(Number);
+      return new Date(year, month - 1, day);
+    }
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate());
+};
+
+const formatIsoDate = (value) => {
+  if (!value) return null;
+  const parsed = value instanceof Date ? value : parseDateStrict(value);
+  if (!parsed) return null;
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const formatDateDisplay = (value) => {
+  const parsed = parseDateStrict(value);
+  return parsed ? parsed.toLocaleDateString("pt-BR") : "-";
+};
+
 export default function OrdersPage() {
   const [form, setForm] = useState(initialForm);
   const [orders, setOrders] = useState([]);
@@ -437,8 +469,8 @@ export default function OrdersPage() {
         projeto_id: project.id,
         projeto_nome: project.name,
         placa_codigo: project.finishedBoardCode,
-        data_pedido: form.dataPedido || null,
-        data_entrega: form.dataEntrega || null,
+        data_pedido: formatIsoDate(form.dataPedido),
+        data_entrega: formatIsoDate(form.dataEntrega),
         valor_base: basePrice,
         ajuste_valor: adjustmentNumber,
         valor: finalPrice,
@@ -500,8 +532,8 @@ export default function OrdersPage() {
           ? String(entry.quantidade)
           : "",
       projetoId: entry.projeto_id ?? "",
-      dataPedido: entry.data_pedido ?? "",
-      dataEntrega: entry.data_entrega ?? "",
+      dataPedido: formatIsoDate(entry.data_pedido) || "",
+      dataEntrega: formatIsoDate(entry.data_entrega) || "",
       ajusteValor:
         entry.ajuste_valor !== null &&
         entry.ajuste_valor !== undefined &&
@@ -968,14 +1000,10 @@ export default function OrdersPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-slate-500">
-                        {entry.data_pedido
-                          ? new Date(entry.data_pedido).toLocaleDateString("pt-BR")
-                          : "-"}
+                        {formatDateDisplay(entry.data_pedido)}
                       </td>
                       <td className="px-4 py-3 text-slate-500">
-                        {entry.data_entrega
-                          ? new Date(entry.data_entrega).toLocaleDateString("pt-BR")
-                          : "-"}
+                        {formatDateDisplay(entry.data_entrega)}
                       </td>
                       <td className="px-4 py-3 text-slate-400">
                         {entry.created_at

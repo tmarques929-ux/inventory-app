@@ -17,6 +17,7 @@ const initialForm = {
 const TYPES = [
   { value: "cliente", label: "Clientes" },
   { value: "fornecedor", label: "Fornecedores" },
+  { value: "dividendos", label: "Dividendos" },
 ];
 
 const sortByName = (list) => list.slice().sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));

@@ -6,6 +6,7 @@ const buildParcelArray = (count) =>
   Array.from({ length: count }, (_, index) => ({
     offsetDays: index === 0 ? 0 : index * 30,
     valor: "",
+    customDate: null,
   }));
 
 const initialForm = {
@@ -28,6 +29,8 @@ const TYPE_OPTIONS = [
   { value: "pagar", label: "Pagar" },
 ];
 
+const IMPOSTO_CONTACT_OPTION = { value: "__imposto__", label: "Imposto" };
+
 const STATUS_BY_TYPE = {
   receber: [
     { value: "pendente", label: "Pendente" },
@@ -41,6 +44,11 @@ const STATUS_BY_TYPE = {
   ],
 };
 
+const getTypeActionLabel = (tipo) => {
+  if (tipo === "receber") return "Receber de";
+  return "Pagar para";
+};
+
 const formatCurrency = (value) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
     Number(value) || 0,
@@ -48,6 +56,16 @@ const formatCurrency = (value) =>
 
 const parseDate = (value) => {
   if (!value) return null;
+  if (value instanceof Date) {
+    return new Date(value.getTime());
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      const [year, month, day] = trimmed.split("-").map(Number);
+      return new Date(year, month - 1, day);
+    }
+  }
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
@@ -58,33 +76,62 @@ const startOfToday = () => {
   return today;
 };
 
-const sortEntries = (list) =>
-  list
-    .slice()
-    .sort((a, b) => {
-      const dateA = parseDate(a.data_prevista);
-      const dateB = parseDate(b.data_prevista);
-      if (dateA && dateB) return dateA.getTime() - dateB.getTime();
-      if (dateA && !dateB) return -1;
-      if (!dateA && dateB) return 1;
-      const createdA = parseDate(a.created_at);
-      const createdB = parseDate(b.created_at);
-      if (createdA && createdB) return createdB.getTime() - createdA.getTime();
-      return 0;
-    });
+const isCompletedStatus = (status) => {
+  const normalized = (status || "").toLowerCase();
+  return normalized === "pago" || normalized === "recebido" || normalized === "cancelado";
+};
+
+const sortEntries = (list) => {
+  const copy = list.slice();
+  copy.sort((a, b) => {
+    const weightA = isCompletedStatus(a.status) ? 1 : 0;
+    const weightB = isCompletedStatus(b.status) ? 1 : 0;
+    if (weightA !== weightB) {
+      return weightA - weightB;
+    }
+
+    const dateA = parseDate(a.data_prevista);
+    const dateB = parseDate(b.data_prevista);
+    if (dateA && dateB) {
+      const comparison = dateA.getTime() - dateB.getTime();
+      if (comparison !== 0) return weightA === 1 ? -comparison : comparison;
+    } else if (dateA && !dateB) {
+      return -1;
+    } else if (!dateA && dateB) {
+      return 1;
+    }
+
+    const createdA = parseDate(a.created_at);
+    const createdB = parseDate(b.created_at);
+    if (createdA && createdB) {
+      const comparison = createdB.getTime() - createdA.getTime();
+      if (comparison !== 0) return comparison;
+    }
+    return 0;
+  });
+  return copy;
+};
 
 const getStatusOptions = (type) => STATUS_BY_TYPE[type] ?? STATUS_BY_TYPE.pagar;
 
 const addDays = (baseDate, amount) => {
   if (!baseDate) return null;
-  const base = new Date(baseDate);
-  if (Number.isNaN(base.getTime())) return null;
-  const result = new Date(base);
+  const base = parseDate(baseDate);
+  if (!base) return null;
+  const result = new Date(base.getFullYear(), base.getMonth(), base.getDate());
   result.setDate(result.getDate() + Number(amount || 0));
   return result;
 };
 
-const formatIsoDate = (date) => (date ? date.toISOString().slice(0, 10) : null);
+const formatIsoDate = (value) => {
+  if (!value) return null;
+  const date = value instanceof Date ? value : parseDate(value);
+  if (!date) return null;
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
 
 const formatDateDisplay = (value) => {
   const parsed = parseDate(value);
@@ -121,6 +168,8 @@ export default function FinancialSchedule() {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [error, setError] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editingEntry, setEditingEntry] = useState(null);
 
   const contactMap = useMemo(() => {
     return contacts.reduce((acc, contact) => {
@@ -158,6 +207,32 @@ export default function FinancialSchedule() {
     loadData();
   }, []);
 
+  useEffect(() => {
+    const channel = supabase
+      .channel("contatos_agenda_financeira")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "contatos" },
+        async () => {
+          try {
+            const { data, error } = await supabase
+              .from("contatos")
+              .select("*")
+              .order("nome", { ascending: true });
+            if (error) throw error;
+            setContacts(data ?? []);
+          } catch (err) {
+            console.error("Erro ao atualizar contatos", err);
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
   const handleFieldChange = (field) => (event) => {
     const value = event.target.value;
     if (field === "type") {
@@ -165,16 +240,60 @@ export default function FinancialSchedule() {
         ...prev,
         type: value,
         status: "pendente",
+        parcelas: prev.parcelas.map((parcela) => {
+          const offsetValue = Number(parcela.offsetDays) || 0;
+          const defaultDate = addDays(prev.dataEmissao, offsetValue);
+          return {
+            ...parcela,
+            customDate:
+              value === "pagar"
+                ? parcela.customDate ??
+                  (defaultDate ? formatIsoDate(defaultDate) : formatIsoDate(prev.dataEmissao))
+                : null,
+          };
+        }),
       }));
       return;
     }
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
+  const resolveEntryNames = (entry) => {
+    if (!entry) {
+      return {
+        displayContact: "Contato sem nome",
+        displayCompany: null,
+      };
+    }
+    const contact =
+      entry.contato_id !== null && entry.contato_id !== undefined
+        ? contactMap[entry.contato_id]
+        : null;
+    const trimmed = (value) =>
+      typeof value === "string" && value.trim() ? value.trim() : null;
+    const isImpostoEntry =
+      entry.contato_id === null || entry.contato_nome === IMPOSTO_CONTACT_OPTION.label;
+
+    const companyFromContact = contact ? trimmed(contact.empresa) : null;
+    const nameFromContact = contact ? trimmed(contact.nome) : null;
+    const nameFromEntry = trimmed(entry.contato_nome);
+
+    const displayCompany = isImpostoEntry
+      ? IMPOSTO_CONTACT_OPTION.label
+      : companyFromContact || nameFromEntry || nameFromContact || null;
+    const displayContact = nameFromContact || nameFromEntry || displayCompany || "Contato sem nome";
+
+    return { displayContact, displayCompany };
+  };
+
   const handleParcelCountChange = (event) => {
     const nextCount = Math.max(1, Number(event.target.value) || 1);
     setForm((prev) => {
-      const limited = prev.parcelas.slice(0, nextCount);
+      const limited = prev.parcelas.slice(0, nextCount).map((parcela) => ({
+        offsetDays: parcela.offsetDays ?? 0,
+        valor: parcela.valor ?? "",
+        customDate: parcela.customDate ?? null,
+      }));
       while (limited.length < nextCount) {
         const last = limited[limited.length - 1];
         const nextOffset =
@@ -183,15 +302,37 @@ export default function FinancialSchedule() {
             : limited.length === 0
             ? 0
             : limited.length * 30;
+        const defaultDate =
+          prev.type === "pagar"
+            ? addDays(prev.dataEmissao, nextOffset)
+            : null;
         limited.push({
           offsetDays: nextOffset,
           valor: "",
+          customDate:
+            prev.type === "pagar"
+              ? defaultDate
+                ? formatIsoDate(defaultDate)
+                : formatIsoDate(prev.dataEmissao)
+              : null,
         });
       }
+      const normalized = limited.map((parcela) => {
+        const offsetValue = Number(parcela.offsetDays) || 0;
+        const defaultDate = addDays(prev.dataEmissao, offsetValue);
+        return {
+          ...parcela,
+          customDate:
+            prev.type === "pagar"
+              ? parcela.customDate ??
+                (defaultDate ? formatIsoDate(defaultDate) : formatIsoDate(prev.dataEmissao))
+              : null,
+        };
+      });
       return {
         ...prev,
         numeroParcelas: nextCount,
-        parcelas: limited,
+        parcelas: normalized,
       };
     });
   };
@@ -211,6 +352,9 @@ export default function FinancialSchedule() {
         if (field === "valor") {
           return { ...parcela, valor: value };
         }
+        if (field === "customDate") {
+          return { ...parcela, customDate: value || null };
+        }
         return parcela;
       });
       return { ...prev, parcelas: next };
@@ -221,7 +365,10 @@ export default function FinancialSchedule() {
     if (!search.trim()) return entries;
     const normalized = search.trim().toLowerCase();
     return entries.filter((entry) => {
+      const { displayContact, displayCompany } = resolveEntryNames(entry);
       return [
+        displayContact,
+        displayCompany,
         entry.contato_nome,
         entry.descricao,
         entry.observacoes,
@@ -234,7 +381,7 @@ export default function FinancialSchedule() {
         .filter(Boolean)
         .some((field) => field.toLowerCase().includes(normalized));
     });
-  }, [entries, search]);
+  }, [entries, search, contactMap]);
 
   const upcomingHighlight = useMemo(() => {
     const today = startOfToday();
@@ -266,39 +413,75 @@ export default function FinancialSchedule() {
       return;
     }
 
-    const contact = contactMap[form.contatoId];
+    const isImpostoSelection = form.contatoId === IMPOSTO_CONTACT_OPTION.value;
+    const contact =
+      !isImpostoSelection && form.contatoId ? contactMap[form.contatoId] : null;
+    const contactIdForPayload = isImpostoSelection ? null : form.contatoId;
     const totalParcelas = Math.max(1, Number(form.numeroParcelas) || 1);
+
+    if (editingId && totalParcelas !== 1) {
+      alert("A edicao de um compromisso suporta apenas uma parcela por vez.");
+      return;
+    }
+
+    const emissionDate = parseDate(form.dataEmissao);
+    const emissionFallback = emissionDate ?? startOfToday();
     const parcelas = form.parcelas.slice(0, totalParcelas);
     const manualValues = parcelas.map((parcela) => {
       const parsed = Number(parcela.valor);
       return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
     });
     const totalValor = Number(form.valor);
+    const contactNameForPayload = isImpostoSelection
+      ? IMPOSTO_CONTACT_OPTION.label
+      : contact?.nome ?? editingEntry?.contato_nome ?? "";
     const parcelValues = manualValues.some((value) => value !== null)
       ? manualValues.map((value) => value ?? 0)
       : distributeValues(Number.isFinite(totalValor) ? totalValor : 0, totalParcelas);
+    const isPayingType = form.type === "pagar";
 
-    const groupId = generateGroupId();
+    const groupId =
+      editingId && editingEntry?.grupo_id ? editingEntry.grupo_id : generateGroupId();
     const adiantamentoValor = form.adiantamentoValor
       ? Number(form.adiantamentoValor)
       : null;
     const payloads = parcelas.map((parcela, index) => {
-      const dueDate = addDays(form.dataEmissao, Number(parcela.offsetDays) || 0);
+      const offsetValue = Number(parcela.offsetDays) || 0;
+      const parsedCustomDate =
+        parcela.customDate && parcela.customDate.trim()
+          ? parseDate(parcela.customDate.trim())
+          : null;
+      const dueDateValue = isPayingType
+        ? parsedCustomDate ?? emissionFallback
+        : addDays(form.dataEmissao, offsetValue) ?? emissionFallback;
+      const diasAposEmissao =
+        emissionDate && dueDateValue
+          ? Math.max(
+              0,
+              Math.round(
+                (dueDateValue.getTime() - emissionDate.getTime()) / (1000 * 60 * 60 * 24),
+              ),
+            )
+          : 0;
       return {
         tipo: form.type,
-        contato_id: form.contatoId,
-        contato_nome: contact?.nome ?? "",
+        contato_id: contactIdForPayload,
+        contato_nome: contactNameForPayload,
         descricao: form.descricao.trim(),
         observacoes: form.observacoes.trim() || null,
         valor: parcelValues[index],
         valor_parcela: parcelValues[index],
-        data_prevista: formatIsoDate(dueDate),
+        data_prevista: formatIsoDate(dueDateValue),
         status: form.status,
         forma_pagamento: form.formaPagamento.trim() || null,
-        parcelas_total: totalParcelas,
-        parcela_numero: index + 1,
+        parcelas_total: editingId
+          ? editingEntry?.parcelas_total ?? totalParcelas
+          : totalParcelas,
+        parcela_numero: editingId
+          ? editingEntry?.parcela_numero ?? index + 1
+          : index + 1,
         data_emissao: form.dataEmissao,
-        dias_apos_emissao: Number(parcela.offsetDays) || 0,
+        dias_apos_emissao: diasAposEmissao,
         grupo_id: groupId,
         adiantamento_valor: adiantamentoValor,
         adiantamento_data: form.adiantamentoData || null,
@@ -312,20 +495,49 @@ export default function FinancialSchedule() {
 
     try {
       setSaving(true);
-      const { data, error: insertError } = await supabase
-        .from("agenda_financeira")
-        .insert(payloads)
-        .select("*");
-      if (insertError) throw insertError;
-      setEntries((current) => sortEntries([...(data ?? []), ...current]));
-      setForm((prev) => ({
-        ...initialForm,
-        type: prev.type,
-        parcelas: buildParcelArray(1),
-      }));
+      if (editingId) {
+        const payload = { ...payloads[0] };
+        if (!payload) {
+          alert("Nao foi possivel montar os dados para atualizar o compromisso.");
+          setSaving(false);
+          return;
+        }
+        if (editingEntry?.grupo_id) {
+          payload.grupo_id = editingEntry.grupo_id;
+        }
+        const { data, error: updateError } = await supabase
+          .from("agenda_financeira")
+          .update(payload)
+          .eq("id", editingId)
+          .select("*")
+          .single();
+        if (updateError) throw updateError;
+        setEntries((current) =>
+          sortEntries(current.map((entry) => (entry.id === editingId ? data : entry))),
+        );
+        setEditingId(null);
+        setEditingEntry(null);
+        setForm((prev) => ({
+          ...initialForm,
+          type: prev.type,
+          parcelas: buildParcelArray(1),
+        }));
+      } else {
+        const { data, error: insertError } = await supabase
+          .from("agenda_financeira")
+          .insert(payloads)
+          .select("*");
+        if (insertError) throw insertError;
+        setEntries((current) => sortEntries([...(data ?? []), ...current]));
+        setForm((prev) => ({
+          ...initialForm,
+          type: prev.type,
+          parcelas: buildParcelArray(1),
+        }));
+      }
     } catch (err) {
-      console.error("Erro ao registrar compromisso financeiro", err);
-      alert("Nao foi possivel salvar o compromisso. Tente novamente.");
+      console.error("Erro ao registrar compromisso financeiro", err, payloads);
+      alert(err?.message ?? "Nao foi possivel salvar o compromisso. Tente novamente.");
     } finally {
       setSaving(false);
     }
@@ -343,6 +555,9 @@ export default function FinancialSchedule() {
       setEntries((current) =>
         sortEntries(current.map((entry) => (entry.id === id ? data : entry))),
       );
+      if (editingId === id) {
+        setEditingEntry(data);
+      }
     } catch (err) {
       console.error("Erro ao atualizar status da agenda financeira", err);
       alert("Nao foi possivel atualizar o status. Tente novamente.");
@@ -358,13 +573,83 @@ export default function FinancialSchedule() {
         .eq("id", id);
       if (deleteError) throw deleteError;
       setEntries((current) => current.filter((entry) => entry.id !== id));
+      if (editingId === id) {
+        setEditingId(null);
+        setEditingEntry(null);
+        setForm((prev) => ({
+          ...initialForm,
+          type: prev.type,
+          parcelas: buildParcelArray(1),
+        }));
+      }
     } catch (err) {
       console.error("Erro ao excluir compromisso financeiro", err);
       alert("Nao foi possivel remover o compromisso.");
     }
   };
 
+  const handleEdit = (entry) => {
+    setEditingId(entry.id);
+    setEditingEntry(entry);
+    const offset = Number(entry.dias_apos_emissao) || 0;
+    const parcelValue =
+      entry.valor_parcela !== null && entry.valor_parcela !== undefined
+        ? entry.valor_parcela
+        : entry.valor ?? "";
+    const contatoIdValue =
+      entry.contato_id === null || entry.contato_id === undefined
+        ? IMPOSTO_CONTACT_OPTION.value
+        : String(entry.contato_id);
+    const isPayingEntry = (entry.tipo || initialForm.type) === "pagar";
+    setForm({
+      ...initialForm,
+      type: entry.tipo || initialForm.type,
+      contatoId: contatoIdValue,
+      descricao: entry.descricao || "",
+      valor:
+        parcelValue !== "" && parcelValue !== null && parcelValue !== undefined
+          ? String(parcelValue)
+          : "",
+      formaPagamento: entry.forma_pagamento || "",
+      dataEmissao: formatIsoDate(entry.data_emissao) || "",
+      numeroParcelas: 1,
+      parcelas: [
+        {
+          offsetDays: offset,
+          valor:
+            parcelValue !== "" && parcelValue !== null && parcelValue !== undefined
+              ? String(parcelValue)
+              : "",
+          customDate: isPayingEntry
+            ? formatIsoDate(entry.data_prevista)
+            : null,
+        },
+      ],
+      adiantamentoValor:
+        entry.adiantamento_valor !== null && entry.adiantamento_valor !== undefined
+          ? String(entry.adiantamento_valor)
+          : "",
+      adiantamentoData: formatIsoDate(entry.adiantamento_data) || "",
+      status: entry.status || "pendente",
+      observacoes: entry.observacoes || "",
+    });
+  };
+
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditingEntry(null);
+    setForm((prev) => ({
+      ...initialForm,
+      type: prev.type ?? initialForm.type,
+      parcelas: buildParcelArray(1),
+    }));
+  };
+
   const statusOptionsForForm = getStatusOptions(form.type);
+  const isEditing = Boolean(editingId);
+  const isPaying = form.type === "pagar";
+  const dueDateLabel = isPaying ? "Data do vencimento" : "Data prevista";
+  const upcomingNames = upcomingHighlight ? resolveEntryNames(upcomingHighlight) : null;
 
   return (
     <div className="space-y-6">
@@ -387,8 +672,8 @@ export default function FinancialSchedule() {
                 </p>
                 <p className="mt-1 font-semibold text-slate-700">
                   {formatDateDisplay(upcomingHighlight.data_prevista)} -{" "}
-                  {upcomingHighlight.tipo === "receber" ? "Receber de" : "Pagar para"}{" "}
-                  {upcomingHighlight.contato_nome || "Contato sem nome"}
+                  {getTypeActionLabel(upcomingHighlight.tipo)}{" "}
+                  {upcomingNames?.displayCompany || upcomingNames?.displayContact}
                 </p>
                 <p className="text-xs text-slate-500">
                   {formatCurrency(upcomingHighlight.valor_parcela ?? upcomingHighlight.valor)} - Parcela{" "}
@@ -403,6 +688,26 @@ export default function FinancialSchedule() {
             )}
           </div>
         </div>
+
+        {isEditing && (
+          <div className="mt-4 flex flex-col gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-700 md:flex-row md:items-center md:justify-between">
+            <div>
+              <strong>Editando compromisso</strong>{" "}
+              {editingEntry?.contato_nome ? `para ${editingEntry.contato_nome}` : ""}
+              {editingEntry?.data_prevista
+                ? ` com vencimento em ${formatDateDisplay(editingEntry.data_prevista)}`
+                : ""}
+              .
+            </div>
+            <button
+              type="button"
+              onClick={handleCancelEdit}
+              className="text-sm font-semibold text-amber-700 underline hover:text-amber-800"
+            >
+              Cancelar edicao
+            </button>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           <label className="flex flex-col text-sm font-medium text-slate-600">
@@ -427,12 +732,16 @@ export default function FinancialSchedule() {
               className="mt-1 rounded-lg border px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
             >
               <option value="">Selecione um contato</option>
+              <option value={IMPOSTO_CONTACT_OPTION.value}>
+                {IMPOSTO_CONTACT_OPTION.label}
+              </option>
               {contacts.map((contact) => (
                 <option key={contact.id} value={contact.id}>
                   {contact.nome}
                   {contact.empresa ? ` - ${contact.empresa}` : ""}
                 </option>
               ))}
+            </select>
           </label>
           <label className="flex flex-col text-sm font-medium text-slate-600">
             Valor total (R$)
@@ -469,6 +778,7 @@ export default function FinancialSchedule() {
             <select
               value={form.numeroParcelas}
               onChange={handleParcelCountChange}
+              disabled={isEditing}
               className="mt-1 rounded-lg border px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
             >
               {Array.from({ length: 12 }, (_, index) => index + 1).map((count) => (
@@ -521,30 +831,51 @@ export default function FinancialSchedule() {
             <div className="mt-3 space-y-3">
               {form.parcelas.slice(0, form.numeroParcelas).map((parcela, index) => {
                 const offset = Number(parcela.offsetDays) || 0;
-                const dueDate = addDays(form.dataEmissao, offset);
+                const rawCustomDate =
+                  parcela.customDate && parcela.customDate.trim()
+                    ? parcela.customDate.trim()
+                    : null;
+                const computedDueDate = isPaying
+                  ? parseDate(rawCustomDate) ?? parseDate(form.dataEmissao)
+                  : addDays(form.dataEmissao, offset);
+                const dueDateIso = computedDueDate ? formatIsoDate(computedDueDate) ?? "" : "";
+                const dueDateDisplay = computedDueDate
+                  ? computedDueDate.toLocaleDateString("pt-BR")
+                  : "-";
+                const parcelGridClass = isPaying
+                  ? "grid gap-3 rounded-lg border bg-slate-50 px-4 py-3 text-sm md:grid-cols-1 lg:grid-cols-3"
+                  : "grid gap-3 rounded-lg border bg-slate-50 px-4 py-3 text-sm md:grid-cols-2 lg:grid-cols-4";
                 return (
-                  <div
-                    key={index}
-                    className="grid gap-3 rounded-lg border bg-slate-50 px-4 py-3 text-sm md:grid-cols-2 lg:grid-cols-4"
-                  >
+                  <div key={index} className={parcelGridClass}>
+                    {!isPaying && (
+                      <div className="flex flex-col font-medium text-slate-600">
+                        Dias apos emissao
+                        <input
+                          type="number"
+                          min="0"
+                          value={parcela.offsetDays}
+                          onChange={handleParcelaFieldChange(index, "offsetDays")}
+                          className="mt-1 rounded-md border px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                        />
+                      </div>
+                    )}
                     <div className="flex flex-col font-medium text-slate-600">
-                      Dias apos emissao
-                      <input
-                        type="number"
-                        min="0"
-                        value={parcela.offsetDays}
-                        onChange={handleParcelaFieldChange(index, "offsetDays")}
-                        className="mt-1 rounded-md border px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-                      />
-                    </div>
-                    <div className="flex flex-col font-medium text-slate-600">
-                      Data prevista
-                      <input
-                        type="text"
-                        value={dueDate ? dueDate.toLocaleDateString("pt-BR") : "-"}
-                        readOnly
-                        className="mt-1 rounded-md border bg-white px-3 py-2 text-sm text-slate-500"
-                      />
+                      {dueDateLabel}
+                      {isPaying ? (
+                        <input
+                          type="date"
+                          value={rawCustomDate ?? dueDateIso}
+                          onChange={handleParcelaFieldChange(index, "customDate")}
+                          className="mt-1 rounded-md border px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                        />
+                      ) : (
+                        <input
+                          type="text"
+                          value={dueDateDisplay}
+                          readOnly
+                          className="mt-1 rounded-md border bg-white px-3 py-2 text-sm text-slate-500"
+                        />
+                      )}
                     </div>
                     <div className="flex flex-col font-medium text-slate-600">
                       Valor da parcela (R$)
@@ -593,14 +924,27 @@ export default function FinancialSchedule() {
             </label>
           </div>
 
-          <div className="flex items-end">
+          <div className="md:col-span-2 lg:col-span-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
             <button
               type="submit"
               disabled={saving}
-              className="w-full rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="w-full rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
             >
-              {saving ? "Salvando..." : "Adicionar compromisso"}
+              {saving
+                ? "Salvando..."
+                : isEditing
+                ? "Salvar alteracoes"
+                : "Adicionar compromisso"}
             </button>
+            {isEditing && (
+              <button
+                type="button"
+                onClick={handleCancelEdit}
+                className="w-full rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 sm:w-auto"
+              >
+                Cancelar
+              </button>
+            )}
           </div>
         </form>
       </section>
@@ -643,6 +987,7 @@ export default function FinancialSchedule() {
                 <tr>
                   <th className="px-4 py-2 text-left">Data</th>
                   <th className="px-4 py-2 text-left">Contato</th>
+                  <th className="px-4 py-2 text-left">Cliente</th>
                   <th className="px-4 py-2 text-left">Parcela</th>
                   <th className="px-4 py-2 text-left">Forma / Adiantamento</th>
                   <th className="px-4 py-2 text-right">Valor</th>
@@ -659,6 +1004,7 @@ export default function FinancialSchedule() {
                     entry.adiantamento_valor && Number(entry.adiantamento_valor) > 0
                       ? Number(entry.adiantamento_valor)
                       : null;
+                  const { displayContact, displayCompany } = resolveEntryNames(entry);
                   return (
                     <tr key={entry.id}>
                       <td className="px-4 py-3 text-slate-600">
@@ -671,7 +1017,7 @@ export default function FinancialSchedule() {
                       </td>
                       <td className="px-4 py-3 text-slate-700">
                         <p className="font-semibold text-slate-700">
-                          {entry.contato_nome || "Contato nao informado"}
+                          {displayContact}
                         </p>
                         <p className="text-xs uppercase text-slate-400">
                           {entry.tipo}
@@ -681,12 +1027,17 @@ export default function FinancialSchedule() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-slate-600">
+                        <p>{displayCompany || "-"}</p>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
                         <p className="font-semibold text-slate-700">
                           Parcela {entry.parcela_numero ?? 1}/{entry.parcelas_total ?? 1}
                         </p>
-                        <p className="text-xs text-slate-400">
-                          {entry.dias_apos_emissao ?? 0} dias apos emissao
-                        </p>
+                        {entry.tipo !== "pagar" && (
+                          <p className="text-xs text-slate-400">
+                            {entry.dias_apos_emissao ?? 0} dias apos emissao
+                          </p>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-slate-600">
                         <p>{entry.forma_pagamento || "-"}</p>
@@ -720,13 +1071,22 @@ export default function FinancialSchedule() {
                         {entry.observacoes || "-"}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(entry.id)}
-                          className="text-sm font-medium text-rose-600 hover:underline"
-                        >
-                          Remover
-                        </button>
+                        <div className="flex justify-end gap-3">
+                          <button
+                            type="button"
+                            onClick={() => handleEdit(entry)}
+                            className="text-sm font-medium text-sky-600 hover:underline"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(entry.id)}
+                            className="text-sm font-medium text-rose-600 hover:underline"
+                          >
+                            Remover
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
