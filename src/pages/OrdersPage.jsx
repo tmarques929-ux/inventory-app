@@ -50,6 +50,7 @@ const initialForm = {
 const NFE_BUCKET = "nfes";
 const MAX_NFE_SIZE = 5 * 1024 * 1024; // 5MB
 const ACCEPTED_NFE_TYPES = ["application/pdf", "application/xml", "text/xml"];
+const PROJECT_VALUES_STORAGE_KEY = "inventory-app-project-values";
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
@@ -155,7 +156,7 @@ export default function OrdersPage() {
   useEffect(() => {
     if (typeof window !== "undefined") {
       try {
-        const stored = window.localStorage.getItem("inventory-app-project-values");
+        const stored = window.localStorage.getItem(PROJECT_VALUES_STORAGE_KEY);
         if (stored) {
           const parsed = JSON.parse(stored);
           if (parsed && typeof parsed === "object") {
@@ -169,9 +170,60 @@ export default function OrdersPage() {
   }, []);
 
   useEffect(() => {
+    let isActive = true;
+
+    const fetchProjectValues = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("projetos_config")
+          .select("id, metadata")
+          .order("updated_at", { ascending: false });
+        if (error) throw error;
+        if (!isActive || !data?.length) return;
+
+        const remoteValues = data.reduce((acc, row) => {
+          if (!row?.id) return acc;
+          const metadata = row.metadata ?? {};
+          const rawValue =
+            metadata && typeof metadata === "object" ? metadata.projectValue : undefined;
+          const numeric = Number(rawValue);
+          acc[row.id] = Number.isFinite(numeric) ? numeric : 0;
+          return acc;
+        }, {});
+
+        if (Object.keys(remoteValues).length === 0) return;
+
+        setProjectPrices((current) => ({ ...current, ...remoteValues }));
+
+        if (typeof window !== "undefined") {
+          try {
+            const stored = window.localStorage.getItem(PROJECT_VALUES_STORAGE_KEY);
+            const base = stored ? JSON.parse(stored) || {} : {};
+            const merged = { ...(base && typeof base === "object" ? base : {}), ...remoteValues };
+            window.localStorage.setItem(
+              PROJECT_VALUES_STORAGE_KEY,
+              JSON.stringify(merged),
+            );
+          } catch (storageErr) {
+            console.error("Nao foi possivel atualizar valores de projetos localmente", storageErr);
+          }
+        }
+      } catch (err) {
+        console.error("Nao foi possivel carregar valores de projetos no Supabase", err);
+      }
+    };
+
+    fetchProjectValues();
+
+    return () => {
+      isActive = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (typeof window === "undefined") return undefined;
     const handleStorage = (event) => {
-      if (event.key === "inventory-app-project-values") {
+      if (event.key === PROJECT_VALUES_STORAGE_KEY) {
         try {
           const next = event.newValue ? JSON.parse(event.newValue) : {};
           if (next && typeof next === "object") {
@@ -184,6 +236,79 @@ export default function OrdersPage() {
     };
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel("public:projetos_config")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "projetos_config" },
+        (payload) => {
+          const record = payload.new ?? payload.old;
+          if (!record?.id) return;
+
+          if (payload.eventType === "DELETE") {
+            setProjectPrices((current) => {
+              if (!(record.id in current)) return current;
+              const next = { ...current };
+              delete next[record.id];
+              if (typeof window !== "undefined") {
+                try {
+                  const stored = window.localStorage.getItem(PROJECT_VALUES_STORAGE_KEY);
+                  const base = stored ? JSON.parse(stored) || {} : {};
+                  if (record.id in base) {
+                    delete base[record.id];
+                    window.localStorage.setItem(
+                      PROJECT_VALUES_STORAGE_KEY,
+                      JSON.stringify(base),
+                    );
+                  }
+                } catch (storageErr) {
+                  console.error(
+                    "Nao foi possivel remover valor de projeto localmente",
+                    storageErr,
+                  );
+                }
+              }
+              return next;
+            });
+            return;
+          }
+
+          const metadata =
+            payload.new?.metadata && typeof payload.new.metadata === "object"
+              ? payload.new.metadata
+              : {};
+          const rawValue = metadata.projectValue;
+          const numeric = Number(rawValue);
+          const value = Number.isFinite(numeric) ? numeric : 0;
+
+          setProjectPrices((current) => {
+            if (current[record.id] === value) return current;
+            const next = { ...current, [record.id]: value };
+            if (typeof window !== "undefined") {
+              try {
+                const stored = window.localStorage.getItem(PROJECT_VALUES_STORAGE_KEY);
+                const base = stored ? JSON.parse(stored) || {} : {};
+                base[record.id] = value;
+                window.localStorage.setItem(PROJECT_VALUES_STORAGE_KEY, JSON.stringify(base));
+              } catch (storageErr) {
+                console.error(
+                  "Nao foi possivel sincronizar valores de projetos localmente",
+                  storageErr,
+                );
+              }
+            }
+            return next;
+          });
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   useEffect(() => {

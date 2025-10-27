@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient";
 import WltLogoMark from "../components/WltLogoMark";
 
@@ -79,6 +79,15 @@ const startOfToday = () => {
 const isCompletedStatus = (status) => {
   const normalized = (status || "").toLowerCase();
   return normalized === "pago" || normalized === "recebido" || normalized === "cancelado";
+};
+
+const isEntryOverdue = (entry) => {
+  if (!entry) return false;
+  const dueDate = parseDate(entry.data_prevista);
+  if (!dueDate) return false;
+
+  const normalizedDue = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
+  return normalizedDue < startOfToday() && !isCompletedStatus(entry.status);
 };
 
 const sortEntries = (list) => {
@@ -258,7 +267,7 @@ export default function FinancialSchedule() {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const resolveEntryNames = (entry) => {
+  const resolveEntryNames = useCallback((entry) => {
     if (!entry) {
       return {
         displayContact: "Contato sem nome",
@@ -279,12 +288,12 @@ export default function FinancialSchedule() {
     const nameFromEntry = trimmed(entry.contato_nome);
 
     const displayCompany = isImpostoEntry
-      ? IMPOSTO_CONTACT_OPTION.label
+      ? null
       : companyFromContact || nameFromEntry || nameFromContact || null;
     const displayContact = nameFromContact || nameFromEntry || displayCompany || "Contato sem nome";
 
     return { displayContact, displayCompany };
-  };
+  }, [contactMap]);
 
   const handleParcelCountChange = (event) => {
     const nextCount = Math.max(1, Number(event.target.value) || 1);
@@ -383,13 +392,60 @@ export default function FinancialSchedule() {
     });
   }, [entries, search, contactMap]);
 
+  const contactBalances = useMemo(() => {
+    if (!search.trim()) return [];
+    const map = new Map();
+
+    filteredEntries.forEach((entry) => {
+      const amount = Number(entry.valor_parcela ?? entry.valor ?? 0);
+      if (!Number.isFinite(amount) || amount <= 0) return;
+
+      const key = entry.contato_id ?? `custom-${entry.contato_nome ?? entry.id}`;
+      const { displayContact, displayCompany } = resolveEntryNames(entry);
+      if (!map.has(key)) {
+        map.set(key, {
+          key,
+          displayContact,
+          displayCompany,
+          totalReceived: 0,
+          totalPendingReceber: 0,
+          totalPaid: 0,
+          totalPendingPagar: 0,
+        });
+      }
+
+      const bucket = map.get(key);
+      const status = (entry.status || "").toLowerCase();
+      if (entry.tipo === "receber") {
+        if (status === "recebido") {
+          bucket.totalReceived += amount;
+        } else {
+          bucket.totalPendingReceber += amount;
+        }
+      } else if (entry.tipo === "pagar") {
+        if (status === "pago") {
+          bucket.totalPaid += amount;
+        } else {
+          bucket.totalPendingPagar += amount;
+        }
+      }
+    });
+
+    return Array.from(map.values()).map((bucket) => ({
+      ...bucket,
+      netBalance: bucket.totalReceived - bucket.totalPaid,
+    }));
+  }, [filteredEntries, resolveEntryNames, search]);
+
   const upcomingHighlight = useMemo(() => {
     const today = startOfToday();
-    const pendingStatuses = new Set(["pendente", "pago", "recebido", "confirmado"]);
+    const allowedStatuses = new Set(["pendente", "confirmado"]);
     return entries
       .filter((entry) => {
         if (!entry.data_prevista) return false;
-        if (!pendingStatuses.has(entry.status ?? "pendente")) return false;
+        const status = (entry.status ?? "pendente").toLowerCase();
+        if (isCompletedStatus(status)) return false;
+        if (!allowedStatuses.has(status)) return false;
         const dueDate = parseDate(entry.data_prevista);
         if (!dueDate) return false;
         return dueDate.getTime() >= today.getTime();
@@ -974,6 +1030,61 @@ export default function FinancialSchedule() {
           </p>
         )}
 
+        {!loading && search.trim() && contactBalances.length > 0 && (
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {contactBalances.map((balance) => {
+              const netClass =
+                balance.netBalance > 0
+                  ? "text-emerald-600"
+                  : balance.netBalance < 0
+                  ? "text-rose-600"
+                  : "text-slate-600";
+              return (
+                <div
+                  key={balance.key}
+                  className="rounded-lg border border-slate-200 bg-white/80 p-4 shadow-sm backdrop-blur-sm"
+                >
+                  <p className="text-sm font-semibold text-slate-700">
+                    {balance.displayContact}
+                  </p>
+                  {balance.displayCompany && (
+                    <p className="text-xs text-slate-500">{balance.displayCompany}</p>
+                  )}
+                  <dl className="mt-3 space-y-1 text-sm text-slate-600">
+                    <div className="flex items-center justify-between">
+                      <dt>Recebido</dt>
+                      <dd className="font-semibold text-emerald-600">
+                        {formatCurrency(balance.totalReceived)}
+                      </dd>
+                    </div>
+                    {balance.totalPendingReceber > 0 && (
+                      <div className="flex items-center justify-between text-xs text-slate-500">
+                        <dt>Pendente receber</dt>
+                        <dd>{formatCurrency(balance.totalPendingReceber)}</dd>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between">
+                      <dt>Pago</dt>
+                      <dd className="font-semibold text-rose-600">
+                        {formatCurrency(balance.totalPaid)}
+                      </dd>
+                    </div>
+                    {balance.totalPendingPagar > 0 && (
+                      <div className="flex items-center justify-between text-xs text-slate-500">
+                        <dt>Pendente pagar</dt>
+                        <dd>{formatCurrency(balance.totalPendingPagar)}</dd>
+                      </div>
+                    )}
+                  </dl>
+                  <p className={`mt-3 text-xs font-semibold uppercase ${netClass}`}>
+                    Saldo: {formatCurrency(balance.netBalance)}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {loading ? (
           <p className="mt-6 text-sm text-slate-500">Carregando agenda financeira...</p>
         ) : filteredEntries.length === 0 ? (
@@ -1005,12 +1116,23 @@ export default function FinancialSchedule() {
                       ? Number(entry.adiantamento_valor)
                       : null;
                   const { displayContact, displayCompany } = resolveEntryNames(entry);
+                  const overdue = isEntryOverdue(entry);
+                  const rowClasses = `border-l-4 transition-colors ${
+                    overdue
+                      ? "border-rose-500 bg-rose-50/70"
+                      : "border-transparent hover:bg-slate-50"
+                  }`;
                   return (
-                    <tr key={entry.id}>
+                    <tr key={entry.id} className={rowClasses}>
                       <td className="px-4 py-3 text-slate-600">
                         <p className="font-medium text-slate-700">
                           {formatDateDisplay(entry.data_prevista)}
                         </p>
+                        {overdue && (
+                          <span className="mt-1 inline-flex items-center rounded-full bg-rose-100 px-2 py-0.5 text-xs font-semibold text-rose-600">
+                            Vencido
+                          </span>
+                        )}
                         <p className="text-xs text-slate-400">
                           Emissao: {formatDateDisplay(entry.data_emissao)}
                         </p>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useInventory } from "../context/InventoryContext";
@@ -61,6 +61,7 @@ const ALL_TABS = [
 ];
 
 const PROJECT_EDIT_PASSWORD = import.meta.env.VITE_PROJECT_EDIT_PASSWORD || "wlt-edit";
+const PROJECT_SYNC_DEBOUNCE_MS = 800;
 
 const normalize = (value) => (value ? value.toString().trim().toLowerCase() : "");
 
@@ -163,31 +164,72 @@ export default function Dashboard({
     [allowedTabIdsKey],
   );
 
-  const persistProjectState = (projects) => {
+  const projectSyncTimeoutRef = useRef(null);
+  const pendingProjectSyncRef = useRef(null);
+
+  const sanitizeProjectForPersistence = (project) => {
+    const metadata = { ...(project?.metadata ?? {}) };
+    if (metadata.projectValue !== undefined) {
+      const numericValue = Number(metadata.projectValue);
+      metadata.projectValue = Number.isFinite(numericValue) ? numericValue : 0;
+    }
+
+    const components = Array.isArray(project?.components)
+      ? project.components.map((component) => {
+          const cloned = cloneComponent(component);
+          if (cloned.quantityPerAssembly !== undefined && cloned.quantityPerAssembly !== null) {
+            const quantityValue = Number(cloned.quantityPerAssembly);
+            cloned.quantityPerAssembly = Number.isFinite(quantityValue) ? quantityValue : 1;
+          }
+          return cloned;
+        })
+      : [];
+
+    return {
+      id: project.id,
+      metadata,
+      components,
+    };
+  };
+
+  const queueProjectSync = useCallback((projects) => {
+    if (!Array.isArray(projects) || projects.length === 0) return;
+    const timestamp = new Date().toISOString();
+    pendingProjectSyncRef.current = projects.map((project) => ({
+      id: project.id,
+      metadata: project.metadata,
+      components: project.components,
+      updated_at: timestamp,
+    }));
+    if (projectSyncTimeoutRef.current) return;
+    projectSyncTimeoutRef.current = setTimeout(async () => {
+      const payload = pendingProjectSyncRef.current;
+      pendingProjectSyncRef.current = null;
+      projectSyncTimeoutRef.current = null;
+      if (!payload || payload.length === 0) return;
+      try {
+        const { error } = await supabase.from("projetos_config").upsert(payload);
+        if (error) throw error;
+      } catch (err) {
+        console.error("Erro ao sincronizar configuracao de projetos com Supabase", err);
+      }
+    }, PROJECT_SYNC_DEBOUNCE_MS);
+  }, []);
+
+  const persistProjectState = (projects, { syncRemote = true } = {}) => {
     if (typeof window === "undefined") return;
     try {
-      const payload = projects.reduce((acc, project) => {
-        const metadata = { ...project.metadata };
-        if (metadata.projectValue !== undefined) {
-          const numericValue = Number(metadata.projectValue);
-          metadata.projectValue = Number.isFinite(numericValue) ? numericValue : 0;
-        }
+      const serializableProjects = projects.map(sanitizeProjectForPersistence);
+      const payload = serializableProjects.reduce((acc, project) => {
         acc[project.id] = {
-          metadata,
-          components: project.components.map((component) => {
-            const cloned = cloneComponent(component);
-            if (cloned.quantityPerAssembly !== undefined && cloned.quantityPerAssembly !== null) {
-              const quantityValue = Number(cloned.quantityPerAssembly);
-              cloned.quantityPerAssembly = Number.isFinite(quantityValue) ? quantityValue : 1;
-            }
-            return cloned;
-          }),
+          metadata: project.metadata,
+          components: project.components,
         };
         return acc;
       }, {});
       const serialized = JSON.stringify(payload);
       window.localStorage.setItem(PROJECT_STATE_STORAGE_KEY, serialized);
-      const valueMap = projects.reduce((acc, project) => {
+      const valueMap = serializableProjects.reduce((acc, project) => {
         const rawValue = project?.metadata?.projectValue;
         const numeric = Number(rawValue);
         acc[project.id] = Number.isFinite(numeric) ? numeric : 0;
@@ -195,13 +237,27 @@ export default function Dashboard({
       }, {});
       window.localStorage.setItem(PROJECT_VALUES_STORAGE_KEY, JSON.stringify(valueMap));
       writeProjectStateCookie(serialized);
+      if (syncRemote) {
+        queueProjectSync(serializableProjects);
+      }
     } catch (err) {
       console.error("Erro ao salvar configuracao de projetos", err);
       clearProjectStateCookies();
     }
   };
 
-const [selectedProjectId, setSelectedProjectId] = useState(
+  useEffect(
+    () => () => {
+      if (projectSyncTimeoutRef.current) {
+        clearTimeout(projectSyncTimeoutRef.current);
+        projectSyncTimeoutRef.current = null;
+      }
+      pendingProjectSyncRef.current = null;
+    },
+    [],
+  );
+
+  const [selectedProjectId, setSelectedProjectId] = useState(
     INITIAL_PROJECT_OPTIONS[0]?.id ?? "dispenser",
   );
   const [isEditingProject, setIsEditingProject] = useState(false);
@@ -291,7 +347,7 @@ const [selectedProjectId, setSelectedProjectId] = useState(
                 components: savedComponents,
               };
             });
-            persistProjectState(next);
+            persistProjectState(next, { syncRemote: false });
             return next;
           });
           return;
@@ -340,7 +396,7 @@ const [selectedProjectId, setSelectedProjectId] = useState(
                 components: savedComponents,
               };
             });
-            persistProjectState(next);
+            persistProjectState(next, { syncRemote: false });
             return next;
           });
           return;
@@ -362,7 +418,7 @@ const [selectedProjectId, setSelectedProjectId] = useState(
                     : project.metadata.projectValue ?? 0,
               },
             }));
-            persistProjectState(next);
+            persistProjectState(next, { syncRemote: false });
             return next;
           });
         }
@@ -370,6 +426,81 @@ const [selectedProjectId, setSelectedProjectId] = useState(
     } catch (err) {
       console.error("Erro ao carregar configuracao de projetos", err);
     }
+  }, []);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadProjectsFromSupabase = async () => {
+      try {
+        const { data, error } = await supabase.from("projetos_config").select("*");
+        if (error) throw error;
+        if (!data || data.length === 0 || !isActive) return;
+
+        setProjectOptions((current) => {
+          const recordMap = new Map();
+          data.forEach((row) => {
+            if (row?.id) recordMap.set(row.id, row);
+          });
+          if (recordMap.size === 0) return current;
+
+          const next = current.map((project) => {
+            const record = recordMap.get(project.id);
+            if (!record) return project;
+
+            const mergedMetadata = {
+              ...project.metadata,
+              ...(record.metadata ?? {}),
+            };
+            if ("projectValue" in mergedMetadata) {
+              const numeric = Number(mergedMetadata.projectValue);
+              mergedMetadata.projectValue = Number.isFinite(numeric) ? numeric : 0;
+            } else if (mergedMetadata.projectValue === undefined) {
+              mergedMetadata.projectValue = project.metadata.projectValue ?? 0;
+            }
+
+            const storedComponents = Array.isArray(record.components)
+              ? record.components.map((component) => {
+                  const cloned = cloneComponent(component);
+                  if (
+                    cloned.quantityPerAssembly !== undefined &&
+                    cloned.quantityPerAssembly !== null
+                  ) {
+                    const numericQuantity = Number(cloned.quantityPerAssembly);
+                    cloned.quantityPerAssembly = Number.isFinite(numericQuantity)
+                      ? numericQuantity
+                      : 1;
+                  }
+                  return cloned;
+                })
+              : project.components.map(cloneComponent);
+
+            const resolvedName =
+              typeof mergedMetadata.name === "string" && mergedMetadata.name.trim()
+                ? mergedMetadata.name
+                : project.name;
+
+            return {
+              ...project,
+              name: resolvedName,
+              metadata: mergedMetadata,
+              components: storedComponents,
+            };
+          });
+
+          persistProjectState(next, { syncRemote: false });
+          return next;
+        });
+      } catch (err) {
+        console.error("Erro ao carregar configuracao de projetos do Supabase", err);
+      }
+    };
+
+    loadProjectsFromSupabase();
+
+    return () => {
+      isActive = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -575,21 +706,21 @@ const catalogWithAvailability = useMemo(() => {
       numericValue = 0;
     }
 
-  setProjectOptions((current) => {
-    const next = current.map((project) =>
-      project.id === selectedProjectId
-        ? {
-            ...project,
-            metadata: {
-              ...project.metadata,
-              projectValue: numericValue,
-            },
-          }
-        : project,
-    );
-    persistProjectState(next);
-    return next;
-  });
+    setProjectOptions((current) => {
+      const next = current.map((project) =>
+        project.id === selectedProjectId
+          ? {
+              ...project,
+              metadata: {
+                ...project.metadata,
+                projectValue: numericValue,
+              },
+            }
+          : project,
+      );
+      persistProjectState(next);
+      return next;
+    });
 
     if (isEditingProject) {
       setDraftProject((current) =>
@@ -938,16 +1069,16 @@ const catalogWithAvailability = useMemo(() => {
     setProjectOptions((current) => {
       const next = current.map((project) => {
         if (project.id !== selectedProjectId) return project;
-    return {
-      ...project,
-      name: metadata.name,
-      metadata,
-      components: sanitizedComponents,
-    };
-  });
-  persistProjectState(next);
-  return next;
-});
+        return {
+          ...project,
+          name: metadata.name,
+          metadata,
+          components: sanitizedComponents,
+        };
+      });
+      persistProjectState(next);
+      return next;
+    });
     setIsEditingProject(false);
     setDraftProject(null);
   };

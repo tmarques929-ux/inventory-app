@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 import { PermissionsProvider } from "./context/PermissionsContext";
 import { InventoryProvider } from "./context/InventoryContext";
 import SideNav from "./components/SideNav";
+import ScrollToTopButton from "./components/ScrollToTopButton";
 import LoginPage from "./pages/LoginPage";
 import Dashboard from "./pages/Dashboard";
 import InventoryList from "./pages/InventoryList";
@@ -28,6 +29,7 @@ function ProtectedLayout() {
         <main className="flex-1 px-4 py-6 md:px-8">
           <Outlet />
         </main>
+        <ScrollToTopButton />
       </div>
     </div>
   );
