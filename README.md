@@ -119,3 +119,18 @@ Vercel is an excellent hosting platform for React applications.  Once you have a
 - **Notifications** – set up email or SMS notifications for low stock items by listening to database changes in real time (Supabase’s real‑time API can notify your app when stock levels drop below a threshold【644437053590858†L65-L88】).
 
 Feel free to customize and expand upon this foundation to meet your specific needs.
+
+## Alertas automatizados
+
+- Execute as migrations:
+  - `supabase/migrations/20251028_create_alerts_table.sql`
+  - `supabase/migrations/20251028_add_purchase_constraints_to_items.sql`
+- Faça deploy da Edge Function `supabase/functions/evaluate-alerts` (ex.: `supabase functions deploy evaluate-alerts`).
+- Configure um schedule diário em **Edge Functions › Schedules** chamando `evaluate-alerts`.
+- Cadastre regras na tabela `alertas` (`regra` em JSON com campos como `min_threshold`, `days_before_due`, `webhook_url`). A função envia POST para o `webhook_url` específico da regra ou para `ALERTS_WEBHOOK_URL` definido no ambiente.
+
+## Câmbio e multi-moeda
+
+- Defina `VITE_USD_EXCHANGE_RATE` (fallback para 5.0) para usar uma taxa fixa ou deixe o app buscar automaticamente em `economia.awesomeapi.com.br`.
+- Cada projeto armazena `{ amount, currency }` em `metadata.projectValue`; selecione a moeda na aba **Projetos** para ver a conversão BRL ⇄ USD.
+- Preencha o preço dos componentes com a moeda correspondente; o histórico em `precos_itens` guarda `moeda` para cada lançamento.

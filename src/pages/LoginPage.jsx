@@ -21,6 +21,21 @@ const CONNECTION_SUCCESS = 'Conex\u00E3o com Supabase estabelecida com sucesso.'
 const CONNECTION_ERROR_PREFIX = 'Erro ao testar conex\u00E3o: ';
 const showConnectionPing = import.meta.env.DEV;
 
+const LOGIN_ALIAS_MAP = {
+  thiagomrib: 'thiagomrib@wltautomacao.com.br',
+  welsiqueira: 'welsiqueira@wltautomacao.com.br',
+  lucasgodoy: 'lucasgodoy@wltautomacao.com.br',
+};
+
+const resolveLoginIdentifier = (rawValue) => {
+  const normalized = rawValue.trim().toLowerCase();
+  if (!normalized) return rawValue;
+  if (LOGIN_ALIAS_MAP[normalized]) {
+    return LOGIN_ALIAS_MAP[normalized];
+  }
+  return rawValue;
+};
+
 export default function LoginPage() {
   const { signInWithEmail, signUpWithEmail, signInWithMagicLink, user } = useAuth();
   const navigate = useNavigate();
@@ -43,15 +58,16 @@ export default function LoginPage() {
     setFeedback(initialFeedback);
 
     try {
+      const identifier = resolveLoginIdentifier(email);
       if (isRegister) {
-        const { error } = await signUpWithEmail(email, password);
+        const { error } = await signUpWithEmail(identifier, password);
         if (error) throw error;
         setFeedback({
           type: 'success',
           text: 'Conta criada! Verifique seu e-mail para confirmar o cadastro.',
         });
       } else {
-        const { error } = await signInWithEmail(email, password);
+        const { error } = await signInWithEmail(identifier, password);
         if (error) throw error;
         setFeedback({ type: 'success', text: 'Autenticado com sucesso!' });
         navigate('/');
@@ -70,7 +86,8 @@ export default function LoginPage() {
     setLoading(true);
     setFeedback(initialFeedback);
     try {
-      const { error } = await signInWithMagicLink(email);
+      const identifier = resolveLoginIdentifier(email);
+      const { error } = await signInWithMagicLink(identifier);
       if (error) throw error;
       setFeedback({
         type: 'success',
@@ -123,15 +140,15 @@ export default function LoginPage() {
 
             <form className="space-y-5" onSubmit={handleSubmit}>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-600">
-                E-mail corporativo
+                E-mail corporativo ou usu\u00E1rio
                 <input
-                  type="email"
+                  type="text"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                   required
-                  autoComplete="email"
+                  autoComplete="username"
                   className="rounded-xl border border-slate-200 px-4 py-3 text-base font-normal text-slate-900 shadow-sm transition focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-                  placeholder="voce@empresa.com"
+                  placeholder="voce@empresa.com ou usuario"
                 />
               </label>
 

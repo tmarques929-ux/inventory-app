@@ -189,6 +189,11 @@ export const dispenserProjectMetadata = {
   name: 'Dispenser de Papel',
   customer: 'Empresa Grifit',
   finishedBoardCode: 'WLT-DISP-PRD-001',
+  pcbVersion: 'v1.0',
+  softwareName: 'Firmware Dispenser',
+  softwareFilePath: null,
+  gerberName: '',
+  gerberFilePath: null,
   notes:
     'Projeto inicial do dispenser de papel. Itens em destaque correspondem a revisao com sensor IQS227B.',
   observation:
@@ -199,6 +204,11 @@ export const delayProjectMetadata = {
   name: 'Circuito Delay Climatizador',
   customer: 'Empresa Grifit',
   finishedBoardCode: 'WLT-DELAY-PRD-001',
+  pcbVersion: 'v1.0',
+  softwareName: 'Firmware Delay',
+  softwareFilePath: null,
+  gerberName: '',
+  gerberFilePath: null,
   notes: 'Projeto de circuito de delay para climatizadores.',
   observation: '',
 };
@@ -207,6 +217,11 @@ export const ntcProjectMetadata = {
   name: 'Circuito NTC',
   customer: 'NAS Engenharia',
   finishedBoardCode: 'WLT-NTC-PRD-001',
+  pcbVersion: 'v1.0',
+  softwareName: 'Firmware NTC',
+  softwareFilePath: null,
+  gerberName: '',
+  gerberFilePath: null,
   notes: 'Projeto baseado em sensor NTC com alimentacao e atraso controlado.',
   observation: '',
 };
@@ -217,21 +232,21 @@ export const projectDefinitions = [
     name: dispenserProjectMetadata.name,
     customer: dispenserProjectMetadata.customer,
     finishedBoardCode: dispenserProjectMetadata.finishedBoardCode,
-    defaultValue: dispenserProjectMetadata.projectValue ?? 0,
+    defaultValue: dispenserProjectMetadata.projectValue?.amount ?? 0,
   },
   {
     id: 'delay',
     name: delayProjectMetadata.name,
     customer: delayProjectMetadata.customer,
     finishedBoardCode: delayProjectMetadata.finishedBoardCode,
-    defaultValue: delayProjectMetadata.projectValue ?? 0,
+    defaultValue: delayProjectMetadata.projectValue?.amount ?? 0,
   },
   {
     id: 'ntc',
     name: ntcProjectMetadata.name,
     customer: ntcProjectMetadata.customer,
     finishedBoardCode: ntcProjectMetadata.finishedBoardCode,
-    defaultValue: ntcProjectMetadata.projectValue ?? 0,
+    defaultValue: ntcProjectMetadata.projectValue?.amount ?? 0,
   },
 ];
 

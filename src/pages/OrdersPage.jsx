@@ -52,6 +52,47 @@ const MAX_NFE_SIZE = 5 * 1024 * 1024; // 5MB
 const ACCEPTED_NFE_TYPES = ["application/pdf", "application/xml", "text/xml"];
 const PROJECT_VALUES_STORAGE_KEY = "inventory-app-project-values";
 
+const DEFAULT_USD_RATE_SEED = Number(import.meta.env.VITE_USD_EXCHANGE_RATE ?? "5");
+const DEFAULT_USD_RATE =
+  Number.isFinite(DEFAULT_USD_RATE_SEED) && DEFAULT_USD_RATE_SEED > 0 ? DEFAULT_USD_RATE_SEED : 5;
+
+const convertToBRL = (amount, currency = "BRL") => {
+  const numeric = Number(amount);
+  if (!Number.isFinite(numeric)) return 0;
+  const normalizedCurrency = typeof currency === "string" ? currency.trim().toUpperCase() : "BRL";
+  switch (normalizedCurrency) {
+    case "USD":
+      return numeric * DEFAULT_USD_RATE;
+    default:
+      return numeric;
+  }
+};
+
+const normalizeProjectValueObject = (value) => {
+  if (value && typeof value === "object") {
+    const amount = Number(value.amount ?? value.value ?? value.valor ?? 0);
+    const rawCurrency = value.currency ?? value.moeda ?? value.currencyCode ?? "BRL";
+    const currency = typeof rawCurrency === "string" ? rawCurrency.trim().toUpperCase() : "BRL";
+    return {
+      amount: Number.isFinite(amount) ? amount : 0,
+      currency: currency || "BRL",
+    };
+  }
+  const numeric = Number(value);
+  return {
+    amount: Number.isFinite(numeric) ? numeric : 0,
+    currency: "BRL",
+  };
+};
+
+const normalizeProjectValueToBRL = (value) => {
+  if (value && typeof value === "object") {
+    const amount = value.amount ?? value.value ?? value.valor ?? 0;
+    const currency = value.currency ?? value.moeda ?? value.currencyCode ?? "BRL";
+    return convertToBRL(amount, currency);
+  }
+  return convertToBRL(value, "BRL");
+};
 const formatCurrency = (value) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(
     Number(value) || 0,
@@ -160,7 +201,11 @@ export default function OrdersPage() {
         if (stored) {
           const parsed = JSON.parse(stored);
           if (parsed && typeof parsed === "object") {
-            setProjectPrices(parsed);
+            const normalized = Object.entries(parsed).reduce((acc, [projectId, value]) => {
+              acc[projectId] = normalizeProjectValueToBRL(value);
+              return acc;
+            }, {});
+            setProjectPrices(normalized);
           }
         }
       } catch (err) {
@@ -181,25 +226,28 @@ export default function OrdersPage() {
         if (error) throw error;
         if (!isActive || !data?.length) return;
 
-        const remoteValues = data.reduce((acc, row) => {
-          if (!row?.id) return acc;
+        const remoteValueObjects = {};
+        const remoteValueAmounts = {};
+        data.forEach((row) => {
+          if (!row?.id) return;
           const metadata = row.metadata ?? {};
-          const rawValue =
-            metadata && typeof metadata === "object" ? metadata.projectValue : undefined;
-          const numeric = Number(rawValue);
-          acc[row.id] = Number.isFinite(numeric) ? numeric : 0;
-          return acc;
-        }, {});
+          const valueObject = normalizeProjectValueObject(metadata.projectValue);
+          remoteValueObjects[row.id] = valueObject;
+          remoteValueAmounts[row.id] = normalizeProjectValueToBRL(valueObject);
+        });
 
-        if (Object.keys(remoteValues).length === 0) return;
+        if (Object.keys(remoteValueAmounts).length === 0) return;
 
-        setProjectPrices((current) => ({ ...current, ...remoteValues }));
+        setProjectPrices((current) => ({ ...current, ...remoteValueAmounts }));
 
         if (typeof window !== "undefined") {
           try {
             const stored = window.localStorage.getItem(PROJECT_VALUES_STORAGE_KEY);
             const base = stored ? JSON.parse(stored) || {} : {};
-            const merged = { ...(base && typeof base === "object" ? base : {}), ...remoteValues };
+            const merged = {
+              ...(base && typeof base === "object" ? base : {}),
+              ...remoteValueObjects,
+            };
             window.localStorage.setItem(
               PROJECT_VALUES_STORAGE_KEY,
               JSON.stringify(merged),
@@ -227,7 +275,11 @@ export default function OrdersPage() {
         try {
           const next = event.newValue ? JSON.parse(event.newValue) : {};
           if (next && typeof next === "object") {
-            setProjectPrices(next);
+            const normalized = Object.entries(next).reduce((acc, [projectId, value]) => {
+              acc[projectId] = normalizeProjectValueToBRL(value);
+              return acc;
+            }, {});
+            setProjectPrices(normalized);
           }
         } catch (err) {
           console.error("Nao foi possivel atualizar valores de projetos", err);
@@ -280,9 +332,8 @@ export default function OrdersPage() {
             payload.new?.metadata && typeof payload.new.metadata === "object"
               ? payload.new.metadata
               : {};
-          const rawValue = metadata.projectValue;
-          const numeric = Number(rawValue);
-          const value = Number.isFinite(numeric) ? numeric : 0;
+          const valueObject = normalizeProjectValueObject(metadata.projectValue);
+          const value = normalizeProjectValueToBRL(valueObject);
 
           setProjectPrices((current) => {
             if (current[record.id] === value) return current;
@@ -291,7 +342,7 @@ export default function OrdersPage() {
               try {
                 const stored = window.localStorage.getItem(PROJECT_VALUES_STORAGE_KEY);
                 const base = stored ? JSON.parse(stored) || {} : {};
-                base[record.id] = value;
+                base[record.id] = valueObject;
                 window.localStorage.setItem(PROJECT_VALUES_STORAGE_KEY, JSON.stringify(base));
               } catch (storageErr) {
                 console.error(

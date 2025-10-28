@@ -10,9 +10,11 @@ import Dashboard from "./pages/Dashboard";
 import InventoryList from "./pages/InventoryList";
 import InventoryForm from "./pages/InventoryForm";
 import OrdersPage from "./pages/OrdersPage";
+import DocumentsPage from "./pages/DocumentsPage";
 import ContactsPage from "./pages/ContactsPage";
 import FinancialSchedule from "./pages/FinancialSchedule";
 import ProductsPage from "./pages/ProductsPage";
+import BudgetGenerator from "./pages/BudgetGenerator";
 
 function ProtectedLayout() {
   const { user } = useAuth();
@@ -60,6 +62,8 @@ export default function App() {
               <Route path="/inventory/new" element={<InventoryForm />} />
               <Route path="/inventory/:id" element={<InventoryForm />} />
               <Route path="/pedidos" element={<OrdersPage />} />
+              <Route path="/orcamentos" element={<BudgetGenerator />} />
+              <Route path="/documentos" element={<DocumentsPage />} />
               <Route path="/contatos" element={<ContactsPage />} />
               <Route path="/agenda-financeira" element={<FinancialSchedule />} />
               <Route

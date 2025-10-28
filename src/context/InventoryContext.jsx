@@ -33,6 +33,14 @@ const ITEM_COLUMN_OPTIONS = {
   location: ['location', 'localizacao'],
   price_current: ['preco_atual', 'preco', 'price_current'],
   price_previous: ['preco_ultimo', 'preco_anterior', 'price_previous'],
+  purchase_lot: ['lote_compra', 'purchase_lot', 'lote_minimo', 'multiplo_compra'],
+  minimum_order_quantity: [
+    'moq',
+    'quantidade_minima',
+    'minimum_order_quantity',
+    'min_order_qty',
+    'lote_minimo_pedido',
+  ],
 };
 
 const DEFAULT_LOCATION_ALIASES = new Set([
@@ -49,6 +57,8 @@ const DEFAULT_ITEM_COLUMNS = {
   location: 'localizacao',
   price_current: 'preco_atual',
   price_previous: 'preco_ultimo',
+  purchase_lot: null,
+  minimum_order_quantity: null,
 };
 
 /**
@@ -138,6 +148,11 @@ const toAppItem = (row, columns = itemColumns) => {
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric : null;
   };
+  const toPositiveInteger = (value) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) return null;
+    return Math.max(1, Math.round(numeric));
+  };
 
   const rawLocation = cleanString(row?.[columns.location]);
   const normalizedLocation = normalizeValue(rawLocation);
@@ -154,6 +169,10 @@ const toAppItem = (row, columns = itemColumns) => {
     location: shouldClearLocation ? '' : rawLocation,
     currentPrice: toNumber(currentPriceValue),
     lastPrice: toNumber(previousPriceValue),
+    purchaseLot: columns.purchase_lot ? toPositiveInteger(row?.[columns.purchase_lot]) : null,
+    minimumOrderQuantity: columns.minimum_order_quantity
+      ? toPositiveInteger(row?.[columns.minimum_order_quantity])
+      : null,
   };
 };
 
@@ -173,6 +192,20 @@ const toDbItem = (item, columns = itemColumns) => {
     payload[columns.price_current] = item.currentPrice;
   if (columns.price_previous && 'lastPrice' in item)
     payload[columns.price_previous] = item.lastPrice;
+  if (columns.purchase_lot && 'purchaseLot' in item)
+    payload[columns.purchase_lot] =
+      item.purchaseLot === '' || item.purchaseLot === null
+        ? null
+        : Number.isFinite(Number(item.purchaseLot))
+        ? Math.max(1, Math.round(Number(item.purchaseLot)))
+        : null;
+  if (columns.minimum_order_quantity && 'minimumOrderQuantity' in item)
+    payload[columns.minimum_order_quantity] =
+      item.minimumOrderQuantity === '' || item.minimumOrderQuantity === null
+        ? null
+        : Number.isFinite(Number(item.minimumOrderQuantity))
+        ? Math.max(1, Math.round(Number(item.minimumOrderQuantity)))
+        : null;
   return payload;
 };
 
@@ -299,13 +332,15 @@ const toDbItem = (item, columns = itemColumns) => {
     return mapped;
   };
 
-  const recordPriceHistory = async (itemId, priceValue) => {
+  const recordPriceHistory = async (itemId, priceValue, source = "inventory_form") => {
     const numericPrice = Number(priceValue);
     if (!itemId || !Number.isFinite(numericPrice) || numericPrice <= 0) return;
     try {
-      await supabase.from('itens_precos_historico').insert({
+      await supabase.from('precos_itens').insert({
         item_id: itemId,
         preco: numericPrice,
+        moeda: 'BRL',
+        source,
       });
     } catch (err) {
       console.error('Erro ao registrar historico de precos', err);

@@ -4,6 +4,11 @@ export default function ProjectsTab({
   onSelectProject,
   selectedProject,
   onProjectValueChange,
+  onProjectCurrencyChange = () => {},
+  projectValueSummary = { amount: 0, currency: "BRL", conversions: { BRL: 0, USD: 0 } },
+  projectValueCurrency = "BRL",
+  projectValueAmountInput = "",
+  currencyOptions = ["BRL", "USD"],
   boardsToProduce,
   onBoardsToProduceChange,
   onGenerateReport,
@@ -24,14 +29,65 @@ export default function ProjectsTab({
   generatedQuantity,
   onDownloadReport,
   onRemoveProjectItem,
+  onSoftwareUpload = () => {},
+  onRemoveSoftwareFile = () => {},
+  onDownloadSoftware = () => {},
+  isUploadingSoftware = false,
+  softwareUploadStatus = { type: null, message: "" },
+  onGerberUpload = () => {},
+  onRemoveGerberFile = () => {},
+  onDownloadGerber = () => {},
+  isUploadingGerber = false,
+  gerberUploadStatus = { type: null, message: "" },
+  revisions = [],
+  revisionsLoading = false,
+  revisionsError = null,
+  reservationsLoading = false,
+  reservationsError = null,
+  reservationStatus = { type: null, message: "" },
+  reservationSummary = { totalReservations: 0, totalQuantity: 0, entries: [] },
+  onFinalizeReservations = () => {},
+  isFinalizingReservations = false,
   canEditProject = false,
 }) {
   const metadata = selectedProject?.metadata ?? {};
+  const effectiveProjectValueSummary = projectValueSummary ?? {
+    amount: 0,
+    currency: "BRL",
+    conversions: { BRL: 0, USD: 0 },
+  };
+  const projectValueInputValue = isEditingProject
+    ? projectValueAmountInput
+    : String(effectiveProjectValueSummary.amount ?? 0);
+  const selectedProjectCurrency = projectValueCurrency || effectiveProjectValueSummary.currency || "BRL";
+
+  const formatCurrencyValue = (value, currency = "BRL") => {
+    const numeric = Number(value);
+    const safeAmount = Number.isFinite(numeric) ? numeric : 0;
+    try {
+      return new Intl.NumberFormat("pt-BR", {
+        style: "currency",
+        currency,
+        minimumFractionDigits: 2,
+      }).format(safeAmount);
+    } catch (_err) {
+      return `${currency} ${safeAmount.toFixed(2)}`;
+    }
+  };
   const draftMetadata = draftProject?.metadata ?? {};
   const components = Array.isArray(draftProject?.components) ? draftProject.components : [];
   const selectionItems = Array.isArray(inventorySelectionItems) ? inventorySelectionItems : [];
   const catalog = Array.isArray(catalogWithAvailability) ? catalogWithAvailability : [];
   const generatedItems = Array.isArray(projectItems) ? projectItems : [];
+  const softwareStatus = softwareUploadStatus || { type: null, message: "" };
+  const gerberStatus = gerberUploadStatus || { type: null, message: "" };
+
+  const formatDateTime = (value) => {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "-";
+    return date.toLocaleString("pt-BR");
+  };
 
   return (
     <div className="space-y-6">
@@ -76,21 +132,70 @@ export default function ProjectsTab({
                     {metadata.finishedBoardCode || "-"}
                   </span>
                 </p>
+                <p className="text-xs font-medium text-slate-500">
+                  Versao PCB:{" "}
+                  <span className="font-semibold text-slate-700">
+                    {metadata.pcbVersion || "-"}
+                  </span>
+                </p>
+                <p className="text-xs text-slate-500">
+                  Software:{" "}
+                  <span className="font-semibold text-slate-700">
+                    {metadata.softwareName || "-"}
+                  </span>
+                  {metadata.softwareFilePath && onDownloadSoftware ? (
+                    <button
+                      type="button"
+                      onClick={() => onDownloadSoftware(metadata.softwareFilePath)}
+                      className="ml-2 text-xs font-semibold text-sky-600 hover:underline"
+                    >
+                      Baixar
+                    </button>
+                  ) : null}
+                </p>
+                <p className="text-xs text-slate-500">
+                  Gerber:{" "}
+                  <span className="font-semibold text-slate-700">
+                    {metadata.gerberName || "-"}
+                  </span>
+                  {metadata.gerberFilePath && onDownloadGerber ? (
+                    <button
+                      type="button"
+                      onClick={() => onDownloadGerber(metadata.gerberFilePath)}
+                      className="ml-2 text-xs font-semibold text-sky-600 hover:underline"
+                    >
+                      Baixar
+                    </button>
+                  ) : null}
+                </p>
               </div>
               <label className="flex flex-col text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-                Valor atual (R$)
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={
-                    metadata.projectValue !== undefined && metadata.projectValue !== null
-                      ? metadata.projectValue
-                      : 0
-                  }
-                  onChange={onProjectValueChange}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-right text-xs text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40 lg:w-24"
-                />
+                Valor atual
+                <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={projectValueInputValue}
+                    onChange={onProjectValueChange}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-right text-xs text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40 sm:w-32"
+                  />
+                  <select
+                    value={selectedProjectCurrency}
+                    onChange={(event) => onProjectCurrencyChange(event.target.value)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-700 focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40 sm:w-28"
+                  >
+                    {currencyOptions.map((currency) => (
+                      <option key={currency} value={currency}>
+                        {currency}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <span className="mt-1 text-[10px] font-medium text-slate-400">
+                  ≈ {formatCurrencyValue(effectiveProjectValueSummary.conversions.BRL, "BRL")} · ≈{" "}
+                  {formatCurrencyValue(effectiveProjectValueSummary.conversions.USD, "USD")}
+                </span>
               </label>
             </div>
           </div>
@@ -128,6 +233,62 @@ export default function ProjectsTab({
         <p className="mt-2 text-xs text-slate-400">
           Informe a quantidade de placas desejada e utilize o relatorio para calcular o que precisa ser comprado.
         </p>
+        {reservationStatus?.message && (
+          <p
+            className={`mt-3 text-xs ${
+              reservationStatus.type === "error"
+                ? "text-rose-600"
+                : reservationStatus.type === "success"
+                ? "text-emerald-600"
+                : "text-slate-500"
+            }`}
+          >
+            {reservationStatus.message}
+          </p>
+        )}
+        {reservationsError && (
+          <p className="mt-3 text-xs text-rose-600">
+            Nao foi possivel carregar reservas pendentes: {reservationsError.message}
+          </p>
+        )}
+        {reservationsLoading ? (
+          <p className="mt-3 text-xs text-slate-500">Carregando reservas pendentes...</p>
+        ) : reservationSummary.totalQuantity > 0 ? (
+          <div className="mt-4 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+            <p>
+              Reservados{" "}
+              <span className="font-semibold">
+                {reservationSummary.totalQuantity.toLocaleString("pt-BR")}
+              </span>{" "}
+              itens em {reservationSummary.totalReservations} registros para este projeto.
+            </p>
+            <ul className="mt-2 space-y-1 text-xs text-sky-700">
+              {reservationSummary.entries.map((entry) => (
+                <li key={entry.itemId}>
+                  <span className="font-semibold">
+                    {entry.itemName}
+                    {entry.itemCode ? ` (${entry.itemCode})` : ""}
+                  </span>{" "}
+                  — {entry.quantity.toLocaleString("pt-BR")} reservados
+                </li>
+              ))}
+            </ul>
+            {canEditProject && (
+              <button
+                type="button"
+                onClick={onFinalizeReservations}
+                disabled={isFinalizingReservations}
+                className="mt-3 inline-flex items-center justify-center rounded-md border border-sky-300 bg-white px-3 py-1.5 text-xs font-semibold text-sky-700 transition hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isFinalizingReservations ? "Registrando consumo..." : "Consumir reservas"}
+              </button>
+            )}
+          </div>
+        ) : (
+          <p className="mt-3 text-xs text-slate-400">
+            Nenhuma reserva pendente para este projeto.
+          </p>
+        )}
         {!canEditProject && (
           <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
             Voce possui acesso apenas para consulta. Somente administradores podem editar o projeto.
@@ -162,6 +323,143 @@ export default function ProjectsTab({
                   className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
                 />
               </label>
+              <label className="flex flex-col text-sm font-medium text-slate-600">
+                Versao PCB
+                <input
+                  type="text"
+                  value={draftMetadata.pcbVersion ?? ""}
+                  onChange={(event) => onDraftMetadataChange("pcbVersion", event.target.value)}
+                  className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                />
+              </label>
+              <label className="flex flex-col text-sm font-medium text-slate-600">
+                Nome do software
+                <input
+                  type="text"
+                  value={draftMetadata.softwareName ?? ""}
+                  onChange={(event) => onDraftMetadataChange("softwareName", event.target.value)}
+                  className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                />
+              </label>
+              <label className="flex flex-col text-sm font-medium text-slate-600">
+                Nome do Gerber
+                <input
+                  type="text"
+                  value={draftMetadata.gerberName ?? ""}
+                  onChange={(event) => onDraftMetadataChange("gerberName", event.target.value)}
+                  className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                />
+              </label>
+              <div className="flex flex-col text-sm font-medium text-slate-600 sm:col-span-2">
+                Arquivo do software
+                <input
+                  type="file"
+                  accept=".bin,.hex,.zip,.rar,.7z,.tar,.gz,.dfu,.img,.exe,.msi"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null;
+                    if (file && onSoftwareUpload) {
+                      onSoftwareUpload(file);
+                    }
+                    event.target.value = "";
+                  }}
+                  disabled={isUploadingSoftware}
+                  className="mt-1 text-sm text-slate-600 file:mr-4 file:rounded-md file:border-0 file:bg-sky-100 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-sky-700 hover:file:bg-sky-200"
+                />
+                {isUploadingSoftware && (
+                  <p className="mt-2 text-xs text-slate-500">Enviando arquivo...</p>
+                )}
+                {softwareStatus.message && (
+                  <p
+                    className={`mt-2 text-xs ${
+                      softwareStatus.type === "error" ? "text-rose-600" : "text-emerald-600"
+                    }`}
+                  >
+                    {softwareStatus.message}
+                  </p>
+                )}
+                {draftMetadata.softwareFilePath && (
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                    <span className="truncate">
+                      Arquivo atual: {draftMetadata.softwareFilePath}
+                    </span>
+                    <div className="flex gap-2">
+                      {onDownloadSoftware && (
+                        <button
+                          type="button"
+                          onClick={() => onDownloadSoftware(draftMetadata.softwareFilePath)}
+                          className="font-semibold text-sky-600 hover:underline"
+                        >
+                          Baixar
+                        </button>
+                      )}
+                      {onRemoveSoftwareFile && (
+                        <button
+                          type="button"
+                          onClick={onRemoveSoftwareFile}
+                          className="font-semibold text-rose-600 hover:underline"
+                        >
+                          Remover
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-col text-sm font-medium text-slate-600 sm:col-span-2">
+                Arquivo Gerber
+                <input
+                  type="file"
+                  accept=".zip,.rar,.7z,.tar,.gz,.ger,.gbr,.brd,.pcb,.gerber"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] ?? null;
+                    if (file && onGerberUpload) {
+                      onGerberUpload(file);
+                    }
+                    event.target.value = "";
+                  }}
+                  disabled={isUploadingGerber}
+                  className="mt-1 text-sm text-slate-600 file:mr-4 file:rounded-md file:border-0 file:bg-sky-100 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-sky-700 hover:file:bg-sky-200"
+                />
+                {isUploadingGerber && (
+                  <p className="mt-2 text-xs text-slate-500">Enviando arquivo...</p>
+                )}
+                {gerberStatus.message && (
+                  <p
+                    className={`mt-2 text-xs ${
+                      gerberStatus.type === "error" ? "text-rose-600" : "text-emerald-600"
+                    }`}
+                  >
+                    {gerberStatus.message}
+                  </p>
+                )}
+                {draftMetadata.gerberFilePath && (
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                    <span className="truncate">
+                      Gerber atual: {draftMetadata.gerberFilePath}
+                    </span>
+                    <div className="flex gap-2">
+                      {onDownloadGerber && (
+                        <button
+                          type="button"
+                          onClick={() => onDownloadGerber(draftMetadata.gerberFilePath)}
+                          className="font-semibold text-sky-600 hover:underline"
+                        >
+                          Baixar
+                        </button>
+                      )}
+                      {onRemoveGerberFile && (
+                        <button
+                          type="button"
+                          onClick={onRemoveGerberFile}
+                          className="font-semibold text-rose-600 hover:underline"
+                        >
+                          Remover
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
               <label className="flex flex-col text-sm font-medium text-slate-600 sm:col-span-2">
                 Notas
                 <textarea
@@ -359,6 +657,88 @@ export default function ProjectsTab({
       </section>
 
       <section className="rounded-xl bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <h3 className="text-lg font-semibold text-slate-800">
+            Historico de revisoes
+          </h3>
+          {revisionsLoading && (
+            <span className="text-xs font-medium text-slate-500">Carregando...</span>
+          )}
+        </div>
+        {revisionsError ? (
+          <p className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-600">
+            Nao foi possivel carregar as revisoes: {revisionsError.message}
+          </p>
+        ) : revisions.length === 0 ? (
+          <p className="mt-3 text-sm text-slate-500">
+            Nenhuma revisao registrada ainda para este projeto.
+          </p>
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="min-w-full divide-y divide-slate-200 text-sm">
+              <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-4 py-2 text-left">Revisao</th>
+                  <th className="px-4 py-2 text-left">Criado em</th>
+                  <th className="px-4 py-2 text-left">Autor</th>
+                  <th className="px-4 py-2 text-left">Versao software</th>
+                  <th className="px-4 py-2 text-left">Software</th>
+                  <th className="px-4 py-2 text-left">Versao hardware</th>
+                  <th className="px-4 py-2 text-left">Hardware</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {revisions.map((revision) => (
+                  <tr key={revision.id}>
+                    <td className="px-4 py-2 font-semibold text-slate-700">#{revision.revision}</td>
+                    <td className="px-4 py-2 text-slate-600">{formatDateTime(revision.createdAt)}</td>
+                    <td className="px-4 py-2 text-slate-500">
+                      {revision.createdByName?.trim() ||
+                        revision.createdByEmail?.trim() ||
+                        revision.createdById ||
+                        "-"}
+                    </td>
+                    <td className="px-4 py-2 text-slate-500">
+                      {revision.softwareVersion?.trim() || "-"}
+                    </td>
+                    <td className="px-4 py-2 text-slate-500">
+                      {revision.softwarePath && onDownloadSoftware ? (
+                        <button
+                          type="button"
+                          onClick={() => onDownloadSoftware(revision.softwarePath)}
+                          className="text-sm font-semibold text-sky-600 hover:underline"
+                        >
+                          Baixar software
+                        </button>
+                      ) : (
+                        <span className="text-slate-400">-</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-slate-500">
+                      {revision.hardwareVersion?.trim() || "-"}
+                    </td>
+                    <td className="px-4 py-2 text-slate-500">
+                      {revision.hardwarePath && onDownloadGerber ? (
+                        <button
+                          type="button"
+                          onClick={() => onDownloadGerber(revision.hardwarePath)}
+                          className="text-sm font-semibold text-sky-600 hover:underline"
+                        >
+                          Baixar hardware
+                        </button>
+                      ) : (
+                        <span className="text-slate-400">-</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="rounded-xl bg-white p-6 shadow-sm">
         <h3 className="text-lg font-semibold text-slate-800">
           Relatorio de compra para montagem
         </h3>
@@ -412,41 +792,66 @@ export default function ProjectsTab({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {generatedItems.map((entry) => (
-                    <tr key={entry.id}>
-                      <td className="px-4 py-3 text-sm font-medium text-slate-700">
-                        {entry.code ? `${entry.code} - ${entry.name}` : entry.name}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-600">
-                        {entry.available.toLocaleString("pt-BR")}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-600">
-                        {entry.perBoard.toLocaleString("pt-BR")}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-600">
-                        {entry.required.toLocaleString("pt-BR")}
-                      </td>
-                      <td
-                        className={`px-4 py-3 text-sm font-semibold ${
-                          entry.toBuy > 0 ? "text-rose-600" : "text-emerald-600"
-                        }`}
-                      >
-                        {entry.toBuy.toLocaleString("pt-BR")}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-slate-600">
-                        {entry.nomenclature?.trim() ? entry.nomenclature : "-"}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          type="button"
-                          onClick={() => onRemoveProjectItem(entry.id)}
-                          className="text-sm font-medium text-rose-600 hover:underline"
-                        >
-                          Remover
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {generatedItems.map((entry) => {
+                    const shortageValue = Number.isFinite(Number(entry.shortage))
+                      ? Number(entry.shortage)
+                      : Math.max(
+                          0,
+                          Number(entry.required ?? 0) - Number(entry.available ?? 0),
+                        );
+                    const lotLabel =
+                      entry.purchaseLot > 1
+                        ? `Lote ${entry.purchaseLot.toLocaleString("pt-BR")}`
+                        : null;
+                    const moqLabel =
+                      entry.minimumOrderQuantity > 0 &&
+                      entry.minimumOrderQuantity !== entry.purchaseLot
+                        ? `MOQ ${entry.minimumOrderQuantity.toLocaleString("pt-BR")}`
+                        : null;
+                    const constraintLabel = [lotLabel, moqLabel].filter(Boolean).join(" · ");
+                    return (
+                      <tr key={entry.id}>
+                        <td className="px-4 py-3 text-sm font-medium text-slate-700">
+                          {entry.code ? `${entry.code} - ${entry.name}` : entry.name}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-slate-600">
+                          {entry.available.toLocaleString("pt-BR")}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-slate-600">
+                          {entry.perBoard.toLocaleString("pt-BR")}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-slate-600">
+                          {entry.required.toLocaleString("pt-BR")}
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          <div
+                            className={`font-semibold ${
+                              entry.toBuy > 0 ? "text-rose-600" : "text-emerald-600"
+                            }`}
+                          >
+                            {entry.toBuy.toLocaleString("pt-BR")}
+                          </div>
+                          {entry.toBuy > 0 && constraintLabel && (
+                            <p className="mt-1 text-xs text-slate-400">
+                              Falta {shortageValue.toLocaleString("pt-BR")} · {constraintLabel}
+                            </p>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-slate-600">
+                          {entry.nomenclature?.trim() ? entry.nomenclature : "-"}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => onRemoveProjectItem(entry.id)}
+                            className="text-sm font-medium text-rose-600 hover:underline"
+                          >
+                            Remover
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -456,14 +861,3 @@ export default function ProjectsTab({
     </div>
   );
 }
-
-ProjectsTab.defaultProps = {
-  draftProject: null,
-  editPanelRef: null,
-  generatedQuantity: null,
-  canEditProject: false,
-};
-
-
-
-

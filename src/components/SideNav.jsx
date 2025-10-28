@@ -13,10 +13,24 @@ const navItems = [
   { to: "/produtos", label: "Produtos", icon: "\u{1F9F7}" }, // puzzle piece
   { to: "/inventory", label: "Itens cadastrados", icon: "\u{1F4C2}" }, // file cabinet
   { to: "/pedidos", label: "Pedidos", icon: "\u{1F4DD}" }, // memo
+  { to: "/orcamentos", label: "Orçamentos", icon: "\u{1F4B1}" }, // currency exchange
   { to: "/agenda-financeira", label: "Agenda financeira", icon: "\u{1F4B0}" }, // money bag
   { to: "/relatorios", label: "Relatorios", icon: "\u{1F4CA}" }, // bar chart
   { to: "/contatos", label: "Clientes & Fornecedores", icon: "\u{1F91D}" }, // handshake
+  { to: "/documentos", label: "Documentos", icon: "\u{1F4C4}" }, // page facing up
 ];
+
+const getUserAlias = (user) => {
+  if (!user) return "";
+  const metadataAlias = typeof user?.user_metadata?.username === "string"
+    ? user.user_metadata.username.trim()
+    : "";
+  if (metadataAlias) return metadataAlias;
+  const email = typeof user?.email === "string" ? user.email.trim() : "";
+  if (!email) return "";
+  const atIndex = email.indexOf("@");
+  return atIndex > 0 ? email.slice(0, atIndex) : email;
+};
 
 export default function SideNav({ collapsed = false, onToggle }) {
   const { user, signOut } = useAuth();
@@ -117,7 +131,7 @@ export default function SideNav({ collapsed = false, onToggle }) {
                 {isAdmin ? "Perfil: Administrador" : "Perfil: Operador"}
               </p>
               <p className="mb-2 truncate text-xs text-slate-500" title={user.email}>
-                {user.email}
+                {getUserAlias(user) || user.email || "Usuário"}
               </p>
             </>
           )}

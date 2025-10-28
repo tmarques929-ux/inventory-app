@@ -13,6 +13,10 @@ export default function StockTab({
   onNewItemDescriptionChange,
   newItemLocation,
   onNewItemLocationChange,
+  newItemPurchaseLot,
+  onNewItemPurchaseLotChange,
+  newItemMoq,
+  onNewItemMoqChange,
   newItemFeedback,
   filteredStockItems,
   adjustItemId,
@@ -102,6 +106,36 @@ export default function StockTab({
               >
                 {isCreatingItem ? "Salvando..." : "Adicionar ao estoque"}
               </button>
+              <label className="flex flex-col text-sm font-medium text-slate-600 md:col-span-2">
+                Lote de compra (múltiplo)
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={newItemPurchaseLot}
+                  onChange={(event) => onNewItemPurchaseLotChange(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                  placeholder="Opcional — ex: 5000"
+                />
+                <span className="mt-1 text-xs text-slate-400">
+                  Informe o múltiplo de compra. Deixe em branco para considerar 1.
+                </span>
+              </label>
+              <label className="flex flex-col text-sm font-medium text-slate-600 md:col-span-2">
+                Quantidade mínima (MOQ)
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={newItemMoq}
+                  onChange={(event) => onNewItemMoqChange(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                  placeholder="Opcional"
+                />
+                <span className="mt-1 text-xs text-slate-400">
+                  Quantidade mínima exigida pelo fornecedor.
+                </span>
+              </label>
               <label className="flex flex-col text-sm font-medium text-slate-600 md:col-span-2">
                 Descricao (opcional)
                 <input
@@ -219,6 +253,12 @@ export default function StockTab({
                 <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Quantidade
                 </th>
+                <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Lote compra
+                </th>
+                <th className="px-4 py-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  MOQ
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -236,6 +276,16 @@ export default function StockTab({
                   <td className="px-4 py-3 text-right text-sm text-slate-600">
                     {item.quantity?.toLocaleString("pt-BR") ?? 0}
                   </td>
+                  <td className="px-4 py-3 text-right text-sm text-slate-600">
+                    {item.purchaseLot
+                      ? item.purchaseLot.toLocaleString("pt-BR")
+                      : "-"}
+                  </td>
+                  <td className="px-4 py-3 text-right text-sm text-slate-600">
+                    {item.minimumOrderQuantity
+                      ? item.minimumOrderQuantity.toLocaleString("pt-BR")
+                      : "-"}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -249,6 +299,10 @@ export default function StockTab({
 StockTab.defaultProps = {
   newItemFeedback: { type: "", message: "" },
   adjustFeedback: { type: "", message: "" },
+  newItemPurchaseLot: "",
+  onNewItemPurchaseLotChange: () => {},
+  newItemMoq: "",
+  onNewItemMoqChange: () => {},
 };
 
 
