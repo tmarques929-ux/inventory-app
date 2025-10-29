@@ -70,7 +70,13 @@ const ALL_TABS = [
 ];
 
 const PROJECT_EDIT_PASSWORD = import.meta.env.VITE_PROJECT_EDIT_PASSWORD || "wlt-edit";
-const PROJECT_SOFTWARE_BUCKET =\n  import.meta.env.VITE_PROJECT_SOFTWARE_BUCKET || "project_software";\nconst PROJECT_GERBER_BUCKET =\n  import.meta.env.VITE_PROJECT_GERBER_BUCKET || "project_gerbers";\nconst COMPANY_DOCUMENTS_BUCKET =\n  import.meta.env.VITE_COMPANY_DOCUMENTS_BUCKET || "company_documents";\nconst FILE_SIGNED_URL_TTL = 60 * 10;
+const PROJECT_SOFTWARE_BUCKET =
+  import.meta.env.VITE_PROJECT_SOFTWARE_BUCKET || "project_software";
+const PROJECT_GERBER_BUCKET =
+  import.meta.env.VITE_PROJECT_GERBER_BUCKET || "project_gerbers";
+const COMPANY_DOCUMENTS_BUCKET =
+  import.meta.env.VITE_COMPANY_DOCUMENTS_BUCKET || "company_documents";
+const FILE_SIGNED_URL_TTL = 60 * 10;
 const PROJECT_SYNC_DEBOUNCE_MS = 800;
 const SUPPORTED_CURRENCIES = ["BRL", "USD"];
 const DEFAULT_USD_RATE_SEED = Number(import.meta.env.VITE_USD_EXCHANGE_RATE ?? "5");
@@ -2584,12 +2590,6 @@ const catalogWithAvailability = useMemo(() => {
           </div>
         </section>
       )}
-
-          </div>
-          <p className="max-w-xl text-sm text-slate-600 md:text-base">{heroSubtitle}</p>
-        </div>
-      </div>
-
       {availableTabs.length > 1 && (
         <div className="bg-white/70 backdrop-blur-sm rounded-2xl border border-slate-200 p-2 shadow-inner">
           <nav className="flex gap-2">

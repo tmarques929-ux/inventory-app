@@ -40,6 +40,19 @@ const formatSize = (size) => {
   return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 };
 
+const formatDateTime = (value) => {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "-";
+  return parsed.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
 export default function DocumentsPage() {
   const { notifyError, notifySuccess } = useNotifications();
   const { hasPermission } = usePermissions();
@@ -229,6 +242,83 @@ export default function DocumentsPage() {
     [documentsToDisplay],
   );
 
+  const renderDocumentsContent = () => {
+    if (loading) {
+      return <p className="mt-4 text-sm text-slate-500">Carregando documentos...</p>;
+    }
+
+    if (documentsToDisplay.length === 0) {
+      return (
+        <div className="mt-6 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center">
+          <p className="text-sm font-medium text-slate-600">Nenhum documento cadastrado ate o momento.</p>
+          {canManageDocuments ? (
+            <p className="mt-2 text-xs text-slate-500">
+              Envie um novo documento utilizando o formulario acima.
+            </p>
+          ) : (
+            <p className="mt-2 text-xs text-slate-500">
+              Os administradores podem adicionar documentos para esta area.
+            </p>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div className="mt-6 space-y-4">
+        {documentsToDisplay.map((document) => (
+          <article
+            key={document.id}
+            className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-5 transition hover:border-slate-300 hover:bg-white md:flex-row md:items-center md:justify-between"
+          >
+            <div className="flex flex-1 items-start gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-200 text-xs font-semibold text-slate-600">
+                {fileTypeBadge(document.mime_type, document.name)}
+              </div>
+              <div className="flex-1 space-y-2">
+                <div className="flex flex-col gap-1 md:flex-row md:items-center md:gap-3">
+                  <h3 className="text-sm font-semibold text-slate-800">{document.name}</h3>
+                  {document.category && (
+                    <span className="inline-flex items-center rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600">
+                      {document.category}
+                    </span>
+                  )}
+                </div>
+                {document.description && <p className="text-xs text-slate-500">{document.description}</p>}
+                <p className="text-xs text-slate-400">
+                  {formatSize(document.size_bytes)} | {formatDateTime(document.created_at)}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2 md:flex-row md:items-center">
+              {document.downloadUrl ? (
+                <a
+                  href={document.downloadUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-sky-200 bg-white px-3 py-2 text-sm font-semibold text-sky-600 transition hover:border-sky-300 hover:bg-sky-50"
+                >
+                  Baixar
+                </a>
+              ) : (
+                <span className="text-xs font-medium text-amber-600">URL temporaria indisponivel</span>
+              )}
+              {canManageDocuments && (
+                <button
+                  type="button"
+                  onClick={() => handleDelete(document.id, document.storage_path)}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-600 transition hover:border-rose-300 hover:bg-rose-100"
+                >
+                  Remover
+                </button>
+              )}
+            </div>
+          </article>
+        ))}
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-10">
       <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
@@ -248,7 +338,7 @@ export default function DocumentsPage() {
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 shadow-sm transition hover:border-sky-300 hover:bg-sky-100"
           >
-            Abrir pasta no Drive ->
+            Abrir pasta no Drive -&gt;
           </a>
         </div>
       </section>
@@ -365,6 +455,8 @@ export default function DocumentsPage() {
 
       <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-800">Arquivos armazenados</h2>
-        {loading ? (
-          <p className="mt-4 text-sm text-slate-500">Carregando documentos...</p>
-        ) : documentsToDisplay.length === 0 ? (
+        {renderDocumentsContent()}
+      </section>
+    </div>
+  );
+}
