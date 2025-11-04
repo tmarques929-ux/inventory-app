@@ -15,7 +15,7 @@ const navItems = [
   { to: "/pedidos", label: "Pedidos", icon: "\u{1F4DD}" }, // memo
   { to: "/orcamentos", label: "Orçamentos", icon: "\u{1F4B1}" }, // currency exchange
   { to: "/agenda-financeira", label: "Agenda financeira", icon: "\u{1F4B0}" }, // money bag
-  { to: "/relatorios", label: "Relatorios", icon: "\u{1F4CA}" }, // bar chart
+  { to: "/relatorios", label: "Relatórios", icon: "\u{1F4CA}" }, // bar chart
   { to: "/contatos", label: "Clientes & Fornecedores", icon: "\u{1F91D}" }, // handshake
   { to: "/documentos", label: "Documentos", icon: "\u{1F4C4}" }, // page facing up
 ];
@@ -105,7 +105,7 @@ export default function SideNav({ collapsed = false, onToggle }) {
     >
       <div className="flex items-center justify-between gap-2 px-4 py-4">
         <span className="text-base font-semibold text-slate-700">
-          {collapsed ? "WLT" : "WLT Automacao"}
+          {collapsed ? "WLT" : "WLT Automação"}
         </span>
         {onToggle && (
           <button

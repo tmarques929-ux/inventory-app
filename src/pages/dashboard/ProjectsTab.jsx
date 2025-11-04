@@ -217,7 +217,7 @@ export default function ProjectsTab({
               onClick={onGenerateReport}
               className="inline-flex items-center justify-center rounded-lg border border-sky-200 px-4 py-2 text-sm font-semibold text-sky-600 transition hover:border-sky-300 hover:bg-sky-50"
             >
-              Gerar relatorio de compra
+              Gerar relatório de compra
             </button>
 {!isEditingProject && canEditProject && (
               <button
@@ -231,7 +231,7 @@ export default function ProjectsTab({
           </div>
         </div>
         <p className="mt-2 text-xs text-slate-400">
-          Informe a quantidade de placas desejada e utilize o relatorio para calcular o que precisa ser comprado.
+          Informe a quantidade de placas desejada e utilize o relatório para calcular o que precisa ser comprado.
         </p>
         {reservationStatus?.message && (
           <p
@@ -744,7 +744,7 @@ export default function ProjectsTab({
         </h3>
         {generatedItems.length === 0 ? (
           <p className="mt-3 text-sm text-slate-500">
-            Informe a quantidade de placas e clique em "Gerar relatorio de compra" para preencher esta tabela.
+            Informe a quantidade de placas e clique em "Gerar relatório de compra" para preencher esta tabela.
           </p>
         ) : (
           <>

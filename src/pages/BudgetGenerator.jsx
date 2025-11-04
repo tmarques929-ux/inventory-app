@@ -7,7 +7,7 @@ import { useNotifications } from "../context/NotificationContext";
 import { usePermissions } from "../context/PermissionsContext";
 
 const COMPANY_INFO = {
-  name: "WLT Automacao",
+  name: "WLT Automação",
   email: "contato@wltautomacao.com.br",
   phone: "(12) 99189-4964",
 };
@@ -15,11 +15,11 @@ const COMPANY_INFO = {
 const DEFAULT_PAYMENT_TERMS = "50% para iniciar e 50% na entrega";
 const DEFAULT_DEVELOPMENT_TIME = "5 semanas";
 const DEFAULT_PRODUCTION_TIME =
-  "10 semanas (inclui compra de componentes, confeccao da PCB e montagem das placas; pode variar em volumes elevados, ex.: 2000 unidades)";
+  "10 semanas (inclui compra de componentes, confecção da PCB e montagem das placas; pode variar em volumes elevados, ex.: 2000 unidades)";
 const DEFAULT_OBSERVATIONS = [
   "Garantia de 6 meses a partir da entrega.",
-  "Inclusos 2 prototipos.",
-  "Apos aprovacao, nao serao permitidas alteracoes estruturais significativas no projeto.",
+  "Inclusos 2 protótipos.",
+  "Após aprovação, não serão permitidas alterações estruturais significativas no projeto.",
 ].join("\n");
 
 const COMPANY_DOCUMENTS_BUCKET = "company_documents";
@@ -97,7 +97,7 @@ export default function BudgetGenerator() {
         }
       } catch (err) {
         if (isActive) {
-          console.warn("Falha ao atualizar taxa USD/BRL. Usando valor padrao.", err);
+          console.warn("Falha ao atualizar taxa USD/BRL. Usando valor padrão.", err);
         }
       }
     };
@@ -302,7 +302,7 @@ export default function BudgetGenerator() {
 
     if (notes.trim()) {
       doc.setFont("helvetica", "bold");
-      doc.text("Observacoes", 20, currentY);
+      doc.text("Observações", 20, currentY);
       currentY += 6;
       doc.setFont("helvetica", "normal");
       const splitNotes = doc.splitTextToSize(notes.trim(), 170);
@@ -312,7 +312,7 @@ export default function BudgetGenerator() {
 
     doc.setFont("helvetica", "italic");
     doc.text(
-      "A equipe WLT Automacao agradece a oportunidade. Estamos disponiveis para ajustes ou esclarecimentos.",
+      "A equipe WLT Automação agradece a oportunidade. Estamos disponíveis para ajustes ou esclarecimentos.",
       20,
       Math.min(currentY + 6, 280),
     );
@@ -351,13 +351,13 @@ export default function BudgetGenerator() {
   const handleGenerate = async (options = { download: true, saveToDocuments: false }) => {
     try {
       if (!clientName.trim()) {
-        notifyError("Informe o nome do cliente antes de gerar o orcamento.");
+        notifyError("Informe o nome do cliente antes de gerar o orçamento.");
         return;
       }
 
       const pdf = buildPdf();
       const safeClientName = clientName.trim() || "cliente";
-      const baseFileName = sanitizeStorageFileName(`${safeClientName}-${Date.now()}`, "orcamento");
+      const baseFileName = sanitizeStorageFileName(`${safeClientName}-${Date.now()}`);
 
       if (options.download) {
         pdf.save(`${baseFileName}.pdf`);
@@ -370,16 +370,16 @@ export default function BudgetGenerator() {
         await savePdfToDocuments(
           pdfBlob,
           storagePath,
-          `Orcamento - ${clientName}`,
+          `Orçamento - ${clientName}`,
           projectTitle || `Gerado em ${new Date().toLocaleDateString("pt-BR")}`,
         );
-        notifySuccess("Orcamento salvo em Documentos.");
+        notifySuccess("Orçamento salvo em Documentos.");
       } else if (options.saveToDocuments && !canSaveDocuments) {
-        notifyError("Voce nao possui permissao para salvar orcamentos nos Documentos.");
+        notifyError("Você não possui permissão para salvar orçamentos nos Documentos.");
       }
     } catch (err) {
-      console.error("Falha ao gerar orcamento", err);
-      notifyError(err?.message ?? "Nao foi possivel gerar o PDF.");
+      console.error("Falha ao gerar orçamento", err);
+      notifyError(err?.message ?? "Não foi possível gerar o PDF.");
     } finally {
       setSaving(false);
     }
@@ -393,9 +393,9 @@ export default function BudgetGenerator() {
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
               Comercial
             </p>
-            <h1 className="text-2xl font-bold text-slate-800 md:text-3xl">Gerador de Orcamentos</h1>
+            <h1 className="text-2xl font-bold text-slate-800 md:text-3xl">Gerador de Orçamentos</h1>
             <p className="mt-2 text-sm text-slate-500">
-              Preencha os dados do cliente, itens e observacoes. Gere o PDF com o padrao da WLT e, se desejar, salve no
+              Preencha os dados do cliente, itens e observações. Gere o PDF com o padrão da WLT e, se desejar, salve no
               modulo de Documentos.
             </p>
           </div>
@@ -517,7 +517,7 @@ export default function BudgetGenerator() {
 
       <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="text-lg font-semibold text-slate-800">Itens do orcamento</h2>
+          <h2 className="text-lg font-semibold text-slate-800">Itens do orçamento</h2>
           <button
             type="button"
             onClick={addItem}
@@ -609,7 +609,7 @@ export default function BudgetGenerator() {
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-800">Observacoes adicionais</h2>
+        <h2 className="text-lg font-semibold text-slate-800">Observações adicionais</h2>
         <textarea
           rows={4}
           value={notes}
@@ -664,7 +664,7 @@ export default function BudgetGenerator() {
         </div>
         {!canSaveDocuments && (
           <p className="mt-3 text-xs text-amber-600">
-            Voce possui acesso apenas para gerar o PDF localmente. Solicite a um administrador para habilitar o salvamento
+            Você possui acesso apenas para gerar o PDF localmente. Solicite a um administrador para habilitar o salvamento
             em Documentos.
           </p>
         )}

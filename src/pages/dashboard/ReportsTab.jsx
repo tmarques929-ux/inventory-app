@@ -258,7 +258,7 @@ export default function ReportsTab({
         setOrders(Array.isArray(orderRows) ? orderRows : []);
         setError(null);
       } catch (err) {
-        console.error("Erro ao carregar dados para relatorios", err);
+        console.error("Erro ao carregar dados para relatórios", err);
         if (isActive) setError(err);
       } finally {
         if (isActive) setLoading(false);

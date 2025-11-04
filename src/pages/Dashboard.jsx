@@ -2089,7 +2089,7 @@ const catalogWithAvailability = useMemo(() => {
       return;
     }
     if (!selectedProjectId) {
-      notifyWarning("Selecione um projeto antes de gerar o relatorio.");
+      notifyWarning("Selecione um projeto antes de gerar o relatório.");
       return;
     }
 
@@ -2325,7 +2325,7 @@ const catalogWithAvailability = useMemo(() => {
 
   const handleDownloadReport = () => {
     if (!projectItems.length) {
-      notifyWarning("Gere o relatorio antes de exportar.");
+      notifyWarning("Gere o relatório antes de exportar.");
       return;
     }
 

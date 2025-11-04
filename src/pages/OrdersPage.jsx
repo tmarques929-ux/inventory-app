@@ -144,6 +144,7 @@ export default function OrdersPage() {
   const [fileInputKey, setFileInputKey] = useState(() => Date.now());
   const [downloadingId, setDownloadingId] = useState(null);
   const [removeExistingNfe, setRemoveExistingNfe] = useState(false);
+  const [phaseUpdatingId, setPhaseUpdatingId] = useState(null);
 
   const contactMap = useMemo(() => {
     return contacts.reduce((acc, contact) => {
@@ -209,7 +210,7 @@ export default function OrdersPage() {
           }
         }
       } catch (err) {
-        console.error("Nao foi possivel carregar valores de projetos", err);
+        console.error("Não foi possível carregar valores de projetos", err);
       }
     }
   }, []);
@@ -253,11 +254,11 @@ export default function OrdersPage() {
               JSON.stringify(merged),
             );
           } catch (storageErr) {
-            console.error("Nao foi possivel atualizar valores de projetos localmente", storageErr);
+            console.error("Não foi possível atualizar valores de projetos localmente", storageErr);
           }
         }
       } catch (err) {
-        console.error("Nao foi possivel carregar valores de projetos no Supabase", err);
+        console.error("Não foi possível carregar valores de projetos no Supabase", err);
       }
     };
 
@@ -282,7 +283,7 @@ export default function OrdersPage() {
             setProjectPrices(normalized);
           }
         } catch (err) {
-          console.error("Nao foi possivel atualizar valores de projetos", err);
+          console.error("Não foi possível atualizar valores de projetos", err);
         }
       }
     };
@@ -318,7 +319,7 @@ export default function OrdersPage() {
                   }
                 } catch (storageErr) {
                   console.error(
-                    "Nao foi possivel remover valor de projeto localmente",
+                    "Não foi possível remover valor de projeto localmente",
                     storageErr,
                   );
                 }
@@ -346,7 +347,7 @@ export default function OrdersPage() {
                 window.localStorage.setItem(PROJECT_VALUES_STORAGE_KEY, JSON.stringify(base));
               } catch (storageErr) {
                 console.error(
-                  "Nao foi possivel sincronizar valores de projetos localmente",
+                  "Não foi possível sincronizar valores de projetos localmente",
                   storageErr,
                 );
               }
@@ -564,24 +565,24 @@ export default function OrdersPage() {
     event.preventDefault();
 
     if (!form.nfe.trim() || !form.contatoId) {
-      alert("Informe o numero do pedido e selecione o cliente.");
+      alert("Informe o número do pedido e selecione o cliente.");
       return;
     }
 
     const trimmedNfe = form.nfe.trim();
     if (!/^\d+$/.test(trimmedNfe)) {
-      alert("O numero do pedido deve conter apenas numeros sequenciais.");
+      alert("O número do pedido deve conter apenas números sequenciais.");
       return;
     }
 
     const nfeNumber = Number.parseInt(trimmedNfe, 10);
     if (!Number.isFinite(nfeNumber)) {
-      alert("Numero de pedido invalido.");
+      alert("Número de pedido inválido.");
       return;
     }
 
     if (!editingId && nfeNumber !== nextNfeNumber) {
-      alert(`O proximo numero de pedido disponivel e ${nextNfeNumber}.`);
+      alert(`O próximo número de pedido disponível é ${nextNfeNumber}.`);
       return;
     }
 
@@ -685,7 +686,7 @@ export default function OrdersPage() {
           .from(NFE_BUCKET)
           .remove(pathsToRemove);
         if (removeError) {
-          console.warn("Nao foi possivel remover arquivos antigos de NFE:", removeError);
+          console.warn("Não foi possível remover arquivos antigos de NFE:", removeError);
         }
       }
       resetNfeControls();
@@ -741,7 +742,7 @@ export default function OrdersPage() {
           .from(NFE_BUCKET)
           .remove([entry.nfe_url]);
         if (removeError) {
-          console.warn("Nao foi possivel remover a NFE associada:", removeError);
+          console.warn("Não foi possível remover a NFE associada:", removeError);
         }
       }
 
@@ -752,7 +753,41 @@ export default function OrdersPage() {
       }
     } catch (err) {
       console.error("Erro ao excluir pedido", err);
-      alert("Nao foi possivel excluir o pedido.");
+      alert("Não foi possível excluir o pedido.");
+    }
+  };
+
+  const handlePhaseUpdate = async (entryId, nextPhase) => {
+    if (!entryId || !nextPhase) return;
+    const normalizedPhase =
+      ORDER_PHASE_LOOKUP[nextPhase]?.value ?? (ORDER_PHASE_LOOKUP[nextPhase] ? nextPhase : null);
+    if (!normalizedPhase || !ORDER_PHASE_LOOKUP[normalizedPhase]) return;
+
+    const currentEntry = orders.find((item) => item.id === entryId);
+    const currentPhaseValue =
+      ORDER_PHASE_LOOKUP[currentEntry?.fase]?.value ?? currentEntry?.fase ?? DEFAULT_ORDER_PHASE;
+    if (currentPhaseValue === normalizedPhase) return;
+
+    try {
+      setPhaseUpdatingId(entryId);
+      const { data, error } = await supabase
+        .from("pedidos")
+        .update({ fase: normalizedPhase })
+        .eq("id", entryId)
+        .select("*")
+        .single();
+      if (error) throw error;
+      setOrders((currentList) =>
+        currentList.map((item) => (item.id === entryId ? data : item)),
+      );
+      if (editingId === entryId) {
+        setForm((prev) => ({ ...prev, fase: normalizedPhase }));
+      }
+    } catch (err) {
+      console.error("Erro ao atualizar fase do pedido", err);
+      alert("Não foi possível atualizar a fase do pedido.");
+    } finally {
+      setPhaseUpdatingId(null);
     }
   };
 
@@ -770,7 +805,7 @@ export default function OrdersPage() {
       }
     } catch (err) {
       console.error("Erro ao baixar NFE", err);
-      alert("Nao foi possivel baixar a nota fiscal.");
+      alert("Não foi possível baixar a nota fiscal.");
     } finally {
       setDownloadingId(null);
     }
@@ -789,8 +824,8 @@ export default function OrdersPage() {
 
         {editingId && (
           <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-            Editando o pedido <span className="font-semibold">#{form.nfe || "sem numero"}</span>.
-            Atualize os dados abaixo e salve para aplicar as alteracoes.
+            Editando o pedido <span className="font-semibold">#{form.nfe || "sem número"}</span>.
+            Atualize os dados abaixo e salve para aplicar as alterações.
           </div>
         )}
 
@@ -837,7 +872,7 @@ export default function OrdersPage() {
               onChange={handleFieldChange("projetoId")}
               className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
             >
-              {projectOptions.length === 0 && <option value="">Nenhuma placa disponivel</option>}
+              {projectOptions.length === 0 && <option value="">Nenhuma placa disponível</option>}
               {projectOptions.map((project) => (
                 <option key={project.id} value={project.id}>
                   {project.finishedBoardCode} - {project.name}
@@ -1020,21 +1055,21 @@ export default function OrdersPage() {
                     onClick={() => setRemoveExistingNfe(false)}
                     className="text-left font-medium text-sky-600 hover:underline"
                   >
-                    Desfazer remocao
+                    Desfazer remoção
                   </button>
                 </>
               ) : (
-                <p>Opcional: anexe a NFE em PDF ou XML para manter o historico.</p>
+                <p>Opcional: anexe a NFE em PDF ou XML para manter o histórico.</p>
               )}
             </div>
           </label>
           <label className="flex flex-col text-sm font-medium text-slate-600 md:col-span-2 lg:col-span-3">
-            Observacoes
+            Observações
             <textarea
               value={form.observacoes}
               onChange={handleFieldChange("observacoes")}
               rows={3}
-              placeholder="Anote combinacoes especiais, acordos ou detalhes relevantes."
+              placeholder="Anote combinações especiais, acordos ou detalhes relevantes."
               className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
             />
           </label>
@@ -1098,7 +1133,7 @@ export default function OrdersPage() {
                   <th className="px-4 py-2 text-left">Entrega</th>
                   <th className="px-4 py-2 text-left">Criado em</th>
                   <th className="px-4 py-2 text-left">NFE</th>
-                  <th className="px-4 py-2 text-left">Observacoes</th>
+                  <th className="px-4 py-2 text-left">Observações</th>
                   <th className="px-4 py-2" />
                 </tr>
               </thead>
@@ -1118,8 +1153,15 @@ export default function OrdersPage() {
                     entry.valor !== null && entry.valor !== undefined
                       ? Number(entry.valor)
                       : baseValue + adjustmentValue;
+                  const normalizedPhaseValue =
+                    ORDER_PHASE_LOOKUP[entry.fase]?.value ??
+                    entry.fase ??
+                    DEFAULT_ORDER_PHASE;
                   const phaseMeta =
-                    ORDER_PHASE_LOOKUP[entry.fase] ?? ORDER_PHASE_LOOKUP[DEFAULT_ORDER_PHASE];
+                    ORDER_PHASE_LOOKUP[normalizedPhaseValue] ??
+                    ORDER_PHASE_LOOKUP[DEFAULT_ORDER_PHASE];
+                  const phaseSelectValue =
+                    phaseMeta.value ?? normalizedPhaseValue ?? DEFAULT_ORDER_PHASE;
                   const contactInfo = contactMap[entry.contato_id];
                   const companyName =
                     typeof contactInfo?.empresa === "string" && contactInfo.empresa.trim()
@@ -1169,11 +1211,27 @@ export default function OrdersPage() {
                         {formatCurrency(finalValue)}
                       </td>
                       <td className="px-4 py-3 text-slate-600">
-                        <span
-                          className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${phaseMeta.badgeClass}`}
+                        <label htmlFor={`order-phase-${entry.id}`} className="sr-only">
+                          Atualizar fase do pedido
+                        </label>
+                        <select
+                          id={`order-phase-${entry.id}`}
+                          value={phaseSelectValue}
+                          onChange={(event) => handlePhaseUpdate(entry.id, event.target.value)}
+                          disabled={phaseUpdatingId === entry.id}
+                          title={
+                            phaseUpdatingId === entry.id
+                              ? "Atualizando fase..."
+                              : "Alterar fase do pedido"
+                          }
+                          className={`cursor-pointer rounded-full border border-transparent px-3 py-1 text-xs font-semibold transition ${phaseMeta.badgeClass} focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-70`}
                         >
-                          {phaseMeta.label}
-                        </span>
+                          {ORDER_PHASES.map((phase) => (
+                            <option key={phase.value} value={phase.value}>
+                              {phase.label}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td className="px-4 py-3 text-slate-500">
                         {formatDateDisplay(entry.data_pedido)}
