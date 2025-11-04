@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useState } from "react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import wltLogoSrc from "../assets/wlt-logo.png";
 import { supabase } from "../supabaseClient";
 import { useNotifications } from "../context/NotificationContext";
 import { usePermissions } from "../context/PermissionsContext";
@@ -10,6 +11,16 @@ const COMPANY_INFO = {
   email: "contato@wltautomacao.com.br",
   phone: "(12) 99189-4964",
 };
+
+const DEFAULT_PAYMENT_TERMS = "50% para iniciar e 50% na entrega";
+const DEFAULT_DEVELOPMENT_TIME = "5 semanas";
+const DEFAULT_PRODUCTION_TIME =
+  "10 semanas (inclui compra de componentes, confeccao da PCB e montagem das placas; pode variar em volumes elevados, ex.: 2000 unidades)";
+const DEFAULT_OBSERVATIONS = [
+  "Garantia de 6 meses a partir da entrega.",
+  "Inclusos 2 prototipos.",
+  "Apos aprovacao, nao serao permitidas alteracoes estruturais significativas no projeto.",
+].join("\n");
 
 const COMPANY_DOCUMENTS_BUCKET = "company_documents";
 const DEFAULT_USD_RATE_SEED = Number(import.meta.env.VITE_USD_EXCHANGE_RATE ?? "5");
@@ -61,11 +72,14 @@ export default function BudgetGenerator() {
   const [companyDocument, setCompanyDocument] = useState("");
   const [projectTitle, setProjectTitle] = useState("");
   const [proposalValidityDays, setProposalValidityDays] = useState(15);
-  const [paymentTerms, setPaymentTerms] = useState("30% na aprovacao, 70% na entrega");
-  const [notes, setNotes] = useState("");
+  const [paymentTerms, setPaymentTerms] = useState(DEFAULT_PAYMENT_TERMS);
+  const [developmentTime, setDevelopmentTime] = useState(DEFAULT_DEVELOPMENT_TIME);
+  const [productionTime, setProductionTime] = useState(DEFAULT_PRODUCTION_TIME);
+  const [notes, setNotes] = useState(DEFAULT_OBSERVATIONS);
   const [items, setItems] = useState([initialItem()]);
   const [exchangeRates, setExchangeRates] = useState({ BRL: 1, USD: DEFAULT_USD_RATE });
   const [saving, setSaving] = useState(false);
+  const [logoDataUrl, setLogoDataUrl] = useState(null);
 
   useEffect(() => {
     let isActive = true;
@@ -92,6 +106,34 @@ export default function BudgetGenerator() {
     return () => {
       isActive = false;
       clearInterval(interval);
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadLogo = async () => {
+      try {
+        const response = await fetch(wltLogoSrc);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        const dataUrl = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.onerror = (event) => reject(event?.target?.error ?? new Error("Falha ao ler logo"));
+          reader.readAsDataURL(blob);
+        });
+        if (isMounted && typeof dataUrl === "string") {
+          setLogoDataUrl(dataUrl);
+        }
+      } catch (err) {
+        if (isMounted) {
+          console.warn("Falha ao carregar o logotipo da WLT para o PDF.", err);
+        }
+      }
+    };
+    loadLogo();
+    return () => {
+      isMounted = false;
     };
   }, []);
 
@@ -157,6 +199,13 @@ export default function BudgetGenerator() {
 
   const buildPdf = () => {
     const doc = new jsPDF();
+    if (logoDataUrl) {
+      try {
+        doc.addImage(logoDataUrl, "PNG", 155, 10, 35, 15);
+      } catch (err) {
+        console.warn("Falha ao adicionar logotipo da WLT ao PDF.", err);
+      }
+    }
     const today = new Date();
     const validity = Number(proposalValidityDays) || 0;
     const validityDate = new Date(today);
@@ -194,8 +243,26 @@ export default function BudgetGenerator() {
     doc.setFont("helvetica", "bold");
     doc.text("Projeto", 20, 84);
     doc.setFont("helvetica", "normal");
-    doc.text(`Titulo/escopo: ${projectTitle || "-"}`, 20, 90);
-    doc.text(`Condicoes de pagamento: ${paymentTerms || "-"}`, 20, 96);
+
+    let detailY = 90;
+    const drawDetailLine = (label, value) => {
+      const content = `${label}: ${value || "-"}`;
+      const lines = doc.splitTextToSize(content, 170);
+      doc.text(lines, 20, detailY);
+      detailY += lines.length * 6;
+    };
+
+    drawDetailLine("Titulo/escopo", projectTitle);
+    drawDetailLine("Condicoes de pagamento", paymentTerms);
+
+    doc.setFont("helvetica", "bold");
+    doc.text("Prazos", 20, detailY);
+    detailY += 6;
+    doc.setFont("helvetica", "normal");
+    drawDetailLine("Desenvolvimento", developmentTime);
+    drawDetailLine("Producao", productionTime);
+
+    const tableStartY = Math.max(detailY + 6, 130);
 
     const validItems = sanitizeItems(items);
     const tableRows = validItems.length
@@ -214,12 +281,12 @@ export default function BudgetGenerator() {
     autoTable(doc, {
       head: [["#", "Descricao", "Qtd.", "Valor unitario", "Subtotal"]],
       body: tableRows,
-      startY: 104,
+      startY: tableStartY,
       styles: { fontSize: 9 },
       headStyles: { fillColor: [15, 76, 129], textColor: 255 },
     });
 
-    let currentY = doc.lastAutoTable?.finalY ?? 110;
+    let currentY = doc.lastAutoTable?.finalY ?? 140;
     currentY += 10;
 
     doc.setFont("helvetica", "bold");
@@ -423,6 +490,26 @@ export default function BudgetGenerator() {
               value={paymentTerms}
               onChange={(event) => setPaymentTerms(event.target.value)}
               className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-sky-500/40"
+            />
+          </label>
+          <label className="flex flex-col text-sm font-medium text-slate-600">
+            Tempo estimado de desenvolvimento
+            <input
+              type="text"
+              value={developmentTime}
+              onChange={(event) => setDevelopmentTime(event.target.value)}
+              className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-sky-500/40"
+              placeholder="Ex.: 5 semanas"
+            />
+          </label>
+          <label className="flex flex-col text-sm font-medium text-slate-600">
+            Tempo estimado para producao
+            <input
+              type="text"
+              value={productionTime}
+              onChange={(event) => setProductionTime(event.target.value)}
+              className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-sky-500/40"
+              placeholder="Ex.: 10 semanas"
             />
           </label>
         </div>

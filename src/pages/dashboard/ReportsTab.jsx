@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { supabase } from "../../supabaseClient";
@@ -24,7 +24,7 @@ const formatConstraintLabel = (lot, moq) => {
   ) {
     parts.push(`MOQ ${moqNumber.toLocaleString("pt-BR")}`);
   }
-  return parts.join(" · ");
+  return parts.join(" ┬À ");
 };
 
 const RECEIVED_STATUSES = new Set(["recebido", "confirmado"]);
@@ -34,7 +34,7 @@ const PURCHASE_ORDER_STATUS_OPTIONS = [
   { value: "rascunho", label: "Rascunho" },
   { value: "enviado", label: "Enviado ao fornecedor" },
   { value: "parcialmente_recebido", label: "Parcialmente recebido" },
-  { value: "concluido", label: "Concluído" },
+  { value: "concluido", label: "Conclu├¡do" },
 ];
 
 const parseDateParts = (value, fallback) => {
@@ -664,7 +664,7 @@ export default function ReportsTab({
       setPoMessage({
         type: "error",
         message:
-          "Nenhum item disponível para gerar o pedido. Gere o relatório de compra na aba Projetos.",
+          "Nenhum item dispon├¡vel para gerar o pedido. Gere o relat├│rio de compra na aba Projetos.",
       });
       return;
     }
@@ -676,7 +676,7 @@ export default function ReportsTab({
       setPoMessage({
         type: "error",
         message:
-          "Alguns itens não estão vinculados ao estoque. Ajuste os componentes antes de gerar o pedido.",
+          "Alguns itens n├úo est├úo vinculados ao estoque. Ajuste os componentes antes de gerar o pedido.",
       });
       return;
     }
@@ -697,7 +697,7 @@ export default function ReportsTab({
     if (!itemsPayload.length) {
       setPoMessage({
         type: "error",
-        message: "Nenhum item com quantidade válida para gerar o pedido.",
+        message: "Nenhum item com quantidade v├ílida para gerar o pedido.",
       });
       return;
     }
@@ -741,7 +741,7 @@ export default function ReportsTab({
       console.error("Erro ao criar pedido de compra", err);
       setPoMessage({
         type: "error",
-        message: err?.message ?? "Não foi possível gerar o pedido de compra.",
+        message: err?.message ?? "N├úo foi poss├¡vel gerar o pedido de compra.",
       });
     } finally {
       setCreatingPurchaseOrder(false);
@@ -764,7 +764,7 @@ export default function ReportsTab({
       console.error("Erro ao atualizar status do pedido", err);
       setPoMessage({
         type: "error",
-        message: err?.message ?? "Não foi possível atualizar o status do pedido.",
+        message: err?.message ?? "N├úo foi poss├¡vel atualizar o status do pedido.",
       });
     }
   };
@@ -775,7 +775,7 @@ export default function ReportsTab({
     doc.setFontSize(16);
     doc.text("Pedido de Compra", 40, 40);
     doc.setFontSize(11);
-    doc.text(`Código: ${order.id}`, 40, 60);
+    doc.text(`C├│digo: ${order.id}`, 40, 60);
     doc.text(`Status: ${order.status}`, 40, 75);
     doc.text(`Criado em: ${formatDateTime(order.createdAt)}`, 40, 90);
     if (order.fornecedor) {
@@ -793,7 +793,7 @@ export default function ReportsTab({
 
     autoTable(doc, {
       startY: 160,
-      head: [["Código", "Componente", "Quantidade", "Preço unitário", "Lead time (dias)"]],
+      head: [["C├│digo", "Componente", "Quantidade", "Pre├ºo unit├írio", "Lead time (dias)"]],
       body: (order.itens ?? []).map((item) => [
         item.item?.code ?? "-",
         item.item?.nome ?? "Componente",
@@ -814,10 +814,10 @@ export default function ReportsTab({
         "Fornecedor",
         "Status",
         "Criado em",
-        "Item código",
+        "Item c├│digo",
         "Item nome",
         "Quantidade",
-        "Preço unitário",
+        "Pre├ºo unit├írio",
         "Lead time (dias)",
       ],
     ];
@@ -848,7 +848,7 @@ export default function ReportsTab({
   if (loading) {
     return (
       <section className="rounded-xl bg-white p-6 shadow-sm">
-        <p className="text-sm text-slate-500">Carregando relatórios...</p>
+        <p className="text-sm text-slate-500">Carregando relat├│rios...</p>
       </section>
     );
   }
@@ -857,7 +857,7 @@ export default function ReportsTab({
     return (
       <section className="rounded-xl bg-white p-6 shadow-sm">
         <p className="text-sm text-rose-600">
-          Não foi possível carregar os dados de relatórios: {error.message}
+          N├úo foi poss├¡vel carregar os dados de relat├│rios: {error.message}
         </p>
       </section>
     );
@@ -868,7 +868,7 @@ export default function ReportsTab({
       <section className="rounded-xl bg-white p-6 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-800">Gerar Pedido de Compra</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Utilize o relatório de compra gerado na aba Projetos para reservar componentes e emitir
+          Utilize o relat├│rio de compra gerado na aba Projetos para reservar componentes e emitir
           um pedido formal para o fornecedor.
         </p>
         {poMessage.message && (
@@ -884,7 +884,7 @@ export default function ReportsTab({
         )}
         {!hasPurchaseCandidates ? (
           <p className="mt-4 text-sm text-slate-500">
-            Gere o relatório de compra na aba <strong>Projetos</strong> para montar o pedido.
+            Gere o relat├│rio de compra na aba <strong>Projetos</strong> para montar o pedido.
           </p>
         ) : (
           <>
@@ -907,7 +907,7 @@ export default function ReportsTab({
                 </select>
               </label>
               <label className="flex flex-col text-sm font-medium text-slate-600">
-                Observações para o pedido
+                Observa├º├Áes para o pedido
                 <textarea
                   rows={2}
                   value={poForm.notes}
@@ -920,7 +920,7 @@ export default function ReportsTab({
             </div>
             {invalidDraftItems.length > 0 && (
               <p className="mt-3 text-xs text-amber-600">
-                Existem componentes sem vínculo com o estoque. Ajuste as peças na aba Projetos antes
+                Existem componentes sem v├¡nculo com o estoque. Ajuste as pe├ºas na aba Projetos antes
                 de gerar o pedido.
               </p>
             )}
@@ -929,9 +929,9 @@ export default function ReportsTab({
                 <thead className="bg-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-3 py-2 text-left">Componente</th>
-                    <th className="px-3 py-2 text-left">Código</th>
+                    <th className="px-3 py-2 text-left">C├│digo</th>
                     <th className="px-3 py-2 text-right">Quantidade</th>
-                    <th className="px-3 py-2 text-right">Preço unitário (R$)</th>
+                    <th className="px-3 py-2 text-right">Pre├ºo unit├írio (R$)</th>
                     <th className="px-3 py-2 text-right">Lead time (dias)</th>
                     <th className="px-3 py-2" />
                   </tr>
@@ -1026,7 +1026,7 @@ export default function ReportsTab({
               <span className="font-semibold">
                 {selectedProject?.metadata?.name ?? "Nenhum projeto selecionado"}
               </span>{" "}
-              {generatedQuantity ? `· Quantidade desejada: ${generatedQuantity}` : null}
+              {generatedQuantity ? `┬À Quantidade desejada: ${generatedQuantity}` : null}
             </p>
           </>
         )}
@@ -1087,7 +1087,7 @@ export default function ReportsTab({
             />
           </label>
           <label className="md:col-span-2 flex flex-col text-sm font-medium text-slate-600">
-            Observações
+            Observa├º├Áes
             <textarea
               rows={2}
               value={supplierForm.observacoes}
@@ -1145,13 +1145,13 @@ export default function ReportsTab({
         <h2 className="text-lg font-semibold text-slate-800">Pedidos de Compra</h2>
         {purchaseOrdersError ? (
           <p className="mt-3 text-sm text-rose-600">
-            Não foi possível carregar os pedidos de compra: {purchaseOrdersError.message}
+            N├úo foi poss├¡vel carregar os pedidos de compra: {purchaseOrdersError.message}
           </p>
         ) : purchaseOrdersLoading ? (
           <p className="mt-3 text-sm text-slate-500">Carregando pedidos...</p>
         ) : purchaseOrders.length === 0 ? (
           <p className="mt-3 text-sm text-slate-500">
-            Nenhum pedido registrado ainda. Gere um pedido utilizando o relatório.
+            Nenhum pedido registrado ainda. Gere um pedido utilizando o relat├│rio.
           </p>
         ) : (
           <div className="mt-4 space-y-4">
@@ -1168,11 +1168,11 @@ export default function ReportsTab({
                     <p className="text-sm font-semibold text-slate-700">{order.id}</p>
                     <p className="text-xs text-slate-500">
                       Criado em {formatDateTime(order.createdAt)}
-                      {order.updatedAt ? ` · Atualizado em ${formatDateTime(order.updatedAt)}` : ""}
+                      {order.updatedAt ? ` ┬À Atualizado em ${formatDateTime(order.updatedAt)}` : ""}
                     </p>
                     {order.observacoes && (
                       <p className="mt-1 text-xs text-slate-500">
-                        Observações: {order.observacoes}
+                        Observa├º├Áes: {order.observacoes}
                       </p>
                     )}
                   </div>
@@ -1228,9 +1228,9 @@ export default function ReportsTab({
                     <thead className="bg-slate-100 text-xs font-semibold uppercase tracking-wide text-slate-500">
                       <tr>
                         <th className="px-3 py-2 text-left">Componente</th>
-                        <th className="px-3 py-2 text-left">Código</th>
+                        <th className="px-3 py-2 text-left">C├│digo</th>
                         <th className="px-3 py-2 text-right">Quantidade</th>
-                        <th className="px-3 py-2 text-right">Preço unitário</th>
+                        <th className="px-3 py-2 text-right">Pre├ºo unit├írio</th>
                         <th className="px-3 py-2 text-right">Lead time</th>
                       </tr>
                     </thead>
@@ -1267,7 +1267,7 @@ export default function ReportsTab({
 
       <section className="rounded-xl bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="text-lg font-semibold text-slate-800">Histórico de preços</h2>
+          <h2 className="text-lg font-semibold text-slate-800">Hist├│rico de pre├ºos</h2>
           <div className="flex items-center gap-2">
             <label htmlFor="price-history-item" className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
               Item
@@ -1278,7 +1278,7 @@ export default function ReportsTab({
               onChange={(event) => setSelectedPriceItemId(event.target.value)}
               className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
             >
-              {sortedItems.length === 0 && <option value="">Nenhum item disponível</option>}
+              {sortedItems.length === 0 && <option value="">Nenhum item dispon├¡vel</option>}
               {sortedItems.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name}
@@ -1290,14 +1290,14 @@ export default function ReportsTab({
         </div>
         {priceHistoryError ? (
           <p className="mt-3 text-sm text-rose-600">
-            Não foi possível carregar o histórico: {priceHistoryError.message}
+            N├úo foi poss├¡vel carregar o hist├│rico: {priceHistoryError.message}
           </p>
         ) : priceHistoryLoading ? (
-          <p className="mt-3 text-sm text-slate-500">Carregando histórico de preços...</p>
+          <p className="mt-3 text-sm text-slate-500">Carregando hist├│rico de pre├ºos...</p>
         ) : !priceChart || !priceChart.points.length ? (
           <p className="mt-3 text-sm text-slate-500">
-            Nenhum registro de preço para este item. Atualize o preço atual na tela de estoque para
-            criar o histórico.
+            Nenhum registro de pre├ºo para este item. Atualize o pre├ºo atual na tela de estoque para
+            criar o hist├│rico.
           </p>
         ) : (
           <>
@@ -1382,7 +1382,7 @@ export default function ReportsTab({
                 <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <tr>
                     <th className="px-3 py-2 text-left">Data</th>
-                    <th className="px-3 py-2 text-left">Preço</th>
+                    <th className="px-3 py-2 text-left">Pre├ºo</th>
                     <th className="px-3 py-2 text-left">Moeda</th>
                     <th className="px-3 py-2 text-left">Origem</th>
                   </tr>
@@ -1416,11 +1416,11 @@ export default function ReportsTab({
       </section>
 
       <section className="rounded-xl bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-800">Agenda financeira — destaques</h2>
+        <h2 className="text-lg font-semibold text-slate-800">Agenda financeira ÔÇö destaques</h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-              Recebido no mês
+              Recebido no m├¬s
             </p>
             <p className="mt-2 text-lg font-semibold text-emerald-600">
               {formatCurrency(summaries.highlights.currentMonth.received)}
@@ -1428,7 +1428,7 @@ export default function ReportsTab({
           </div>
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-              Pago no mês
+              Pago no m├¬s
             </p>
             <p className="mt-2 text-lg font-semibold text-rose-600">
               {formatCurrency(summaries.highlights.currentMonth.paid)}
@@ -1436,7 +1436,7 @@ export default function ReportsTab({
           </div>
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-              Saldo no mês
+              Saldo no m├¬s
             </p>
             <p
               className={`mt-2 text-lg font-semibold ${
@@ -1450,7 +1450,7 @@ export default function ReportsTab({
           </div>
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
-              NF-es no mês
+              NF-es no m├¬s
             </p>
             <p className="mt-2 text-lg font-semibold text-slate-700">
               {formatCurrency(summaries.highlights.currentMonth.nfe)}
@@ -1461,7 +1461,7 @@ export default function ReportsTab({
 
       <section className="rounded-xl bg-white p-6 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-800">
-          Agenda financeira — resumo mensal
+          Agenda financeira ÔÇö resumo mensal
         </h2>
         {!hasFinancialData ? (
           <p className="mt-3 text-sm text-slate-500">
@@ -1472,7 +1472,7 @@ export default function ReportsTab({
             <table className="min-w-full divide-y divide-slate-200">
               <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 <tr>
-                  <th className="px-4 py-2 text-left">Mês</th>
+                  <th className="px-4 py-2 text-left">M├¬s</th>
                   <th className="px-4 py-2 text-right">Recebido</th>
                   <th className="px-4 py-2 text-right">Pago</th>
                   <th className="px-4 py-2 text-right">Saldo</th>
@@ -1505,7 +1505,7 @@ export default function ReportsTab({
 
       <section className="rounded-xl bg-white p-6 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-800">
-          Agenda financeira — resumo anual
+          Agenda financeira ÔÇö resumo anual
         </h2>
         {!hasFinancialData ? (
           <p className="mt-3 text-sm text-slate-500">
@@ -1548,11 +1548,11 @@ export default function ReportsTab({
       </section>
 
       <section className="rounded-xl bg-white p-6 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-800">NF-es — valores declarados</h2>
+        <h2 className="text-lg font-semibold text-slate-800">NF-es ÔÇö valores declarados</h2>
         {!hasNfeData ? (
           <p className="mt-3 text-sm text-slate-500">
-            Nenhum pedido com NF-e foi localizado. Cadastre pedidos na tela “Pedidos” para gerar
-            este relatório.
+            Nenhum pedido com NF-e foi localizado. Cadastre pedidos na tela ÔÇ£PedidosÔÇØ para gerar
+            este relat├│rio.
           </p>
         ) : (
           <>
@@ -1560,7 +1560,7 @@ export default function ReportsTab({
               <table className="min-w-full divide-y divide-slate-200">
                 <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <tr>
-                    <th className="px-4 py-2 text-left">Mês</th>
+                    <th className="px-4 py-2 text-left">M├¬s</th>
                     <th className="px-4 py-2 text-right">Total NF-es</th>
                   </tr>
                 </thead>
