@@ -2,6 +2,11 @@ export default function ProjectsTab({
   projectOptions,
   selectedProjectId,
   onSelectProject,
+  newProjectName = "",
+  onNewProjectNameChange = () => {},
+  onCreateProject = () => {},
+  isCreatingProjectOption = false,
+  newProjectStatus = { type: null, message: "" },
   selectedProject,
   onProjectValueChange,
   onProjectCurrencyChange = () => {},
@@ -110,6 +115,43 @@ export default function ProjectsTab({
             </option>
           ))}
         </select>
+        <form
+          className="mt-4 flex flex-col gap-3 md:flex-row md:items-end"
+          onSubmit={(event) => {
+            event.preventDefault();
+            onCreateProject();
+          }}
+        >
+          <label className="flex flex-col text-sm font-medium text-slate-600">
+            Novo projeto
+            <input
+              type="text"
+              value={newProjectName}
+              onChange={(event) => onNewProjectNameChange(event.target.value)}
+              placeholder="Ex.: Controlador de acesso"
+              className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+              disabled={isCreatingProjectOption || !canEditProject}
+            />
+          </label>
+          <button
+            type="submit"
+            className="inline-flex items-center justify-center rounded-lg border border-sky-200 px-4 py-2 text-sm font-semibold text-sky-600 transition hover:border-sky-300 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={
+              !canEditProject || isCreatingProjectOption || !newProjectName.trim()
+            }
+          >
+            {isCreatingProjectOption ? "Adicionando..." : "Adicionar projeto"}
+          </button>
+        </form>
+        {newProjectStatus?.message && (
+          <p
+            className={`mt-2 text-xs ${
+              newProjectStatus.type === "error" ? "text-rose-600" : "text-emerald-600"
+            }`}
+          >
+            {newProjectStatus.message}
+          </p>
+        )}
       </section>
 
       <section className="rounded-xl bg-white p-6 shadow-sm">

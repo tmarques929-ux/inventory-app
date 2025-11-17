@@ -1,13 +1,14 @@
-﻿import { useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import wltLogoSrc from "../assets/wlt-logo.png";
 import { supabase } from "../supabaseClient";
 import { useNotifications } from "../context/NotificationContext";
 import { usePermissions } from "../context/PermissionsContext";
+import { COMPANY_DOCUMENTS_BUCKET } from "../config/storage";
 
 const COMPANY_INFO = {
-  name: "WLT Automação",
+  name: "WLT Automa\u00e7\u00e3o",
   email: "contato@wltautomacao.com.br",
   phone: "(12) 99189-4964",
 };
@@ -15,14 +16,14 @@ const COMPANY_INFO = {
 const DEFAULT_PAYMENT_TERMS = "50% para iniciar e 50% na entrega";
 const DEFAULT_DEVELOPMENT_TIME = "5 semanas";
 const DEFAULT_PRODUCTION_TIME =
-  "10 semanas (inclui compra de componentes, confecção da PCB e montagem das placas; pode variar em volumes elevados, ex.: 2000 unidades)";
+  "10 semanas (inclui compra de componentes, confec\u00e7\u00e3o da PCB e montagem das placas; pode variar em volumes elevados, ex.: 2000 unidades)";
 const DEFAULT_OBSERVATIONS = [
   "Garantia de 6 meses a partir da entrega.",
-  "Inclusos 2 protótipos.",
-  "Após aprovação, não serão permitidas alterações estruturais significativas no projeto.",
+  "Inclusos 2 prot\u00f3tipos.",
+  "Ap\u00f3s aprova\u00e7\u00e3o, n\u00e3o ser\u00e3o permitidas altera\u00e7\u00f5es estruturais significativas no projeto.",
 ].join("\n");
 
-const COMPANY_DOCUMENTS_BUCKET = "company_documents";
+
 const DEFAULT_USD_RATE_SEED = Number(import.meta.env.VITE_USD_EXCHANGE_RATE ?? "5");
 const DEFAULT_USD_RATE =
   Number.isFinite(DEFAULT_USD_RATE_SEED) && DEFAULT_USD_RATE_SEED > 0 ? DEFAULT_USD_RATE_SEED : 5;
@@ -76,10 +77,12 @@ export default function BudgetGenerator() {
   const [developmentTime, setDevelopmentTime] = useState(DEFAULT_DEVELOPMENT_TIME);
   const [productionTime, setProductionTime] = useState(DEFAULT_PRODUCTION_TIME);
   const [notes, setNotes] = useState(DEFAULT_OBSERVATIONS);
-  const [items, setItems] = useState([initialItem()]);
-  const [exchangeRates, setExchangeRates] = useState({ BRL: 1, USD: DEFAULT_USD_RATE });
-  const [saving, setSaving] = useState(false);
-  const [logoDataUrl, setLogoDataUrl] = useState(null);
+const [items, setItems] = useState([initialItem()]);
+const [exchangeRates, setExchangeRates] = useState({ BRL: 1, USD: DEFAULT_USD_RATE });
+const [saving, setSaving] = useState(false);
+const [logoDataUrl, setLogoDataUrl] = useState(null);
+const [watermarkDataUrl, setWatermarkDataUrl] = useState(null);
+const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
 
   useEffect(() => {
     let isActive = true;
@@ -97,7 +100,7 @@ export default function BudgetGenerator() {
         }
       } catch (err) {
         if (isActive) {
-          console.warn("Falha ao atualizar taxa USD/BRL. Usando valor padrão.", err);
+          console.warn("Falha ao atualizar taxa USD/BRL. Usando valor padr\\u00e3o.", err);
         }
       }
     };
@@ -109,33 +112,124 @@ export default function BudgetGenerator() {
     };
   }, []);
 
-  useEffect(() => {
-    let isMounted = true;
-    const loadLogo = async () => {
+  const loadImageAsPngDataUrl = useCallback(async (src, label) => {
+    const response = await fetch(src);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => {
+        try {
+          const canvas = document.createElement("canvas");
+          const width = image.naturalWidth || image.width || 512;
+          const height = image.naturalHeight || image.height || 512;
+          canvas.width = width;
+          canvas.height = height;
+          const context = canvas.getContext("2d");
+          if (!context) throw new Error("Contexto 2D indispon\\u00edvel para convers\\u00e3o de imagem.");
+          context.drawImage(image, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/png"));
+        } catch (err) {
+          reject(err);
+        } finally {
+          URL.revokeObjectURL(objectUrl);
+        }
+      };
+      image.onerror = (error) => {
+        URL.revokeObjectURL(objectUrl);
+        reject(error ?? new Error(`Falha ao carregar ${label ?? "imagem"}`));
+      };
+      image.src = objectUrl;
+    });
+  }, []);
+
+  const deriveWatermarkFromLogo = useCallback(async (logoData) => {
+    if (!logoData) return null;
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => {
+        try {
+          const width = image.naturalWidth || image.width || 512;
+          const height = image.naturalHeight || image.height || 512;
+          const iconSize = Math.min(width, height);
+          const canvas = document.createElement("canvas");
+          canvas.width = iconSize;
+          canvas.height = iconSize;
+          const context = canvas.getContext("2d");
+          if (!context) throw new Error("Contexto 2D indispon\\u00edvel para gerar marca d'\\u00e1gua.");
+          context.drawImage(image, 0, 0, iconSize, iconSize, 0, 0, iconSize, iconSize);
+          resolve({ dataUrl: canvas.toDataURL("image/png"), aspectRatio: width / height || 1 });
+        } catch (err) {
+          reject(err);
+        }
+      };
+      image.onerror = (error) =>
+        reject(error ?? new Error("Falha ao derivar marca d'\\u00e1gua a partir do logotipo."));
+      image.src = logoData;
+    });
+  }, []);
+
+  const loadAssets = useCallback(async () => {
+    if (typeof window === "undefined") {
+      return {
+        logo: assetsCacheRef.current.logo,
+        watermark: assetsCacheRef.current.watermark,
+      };
+    }
+
+    if (assetsCacheRef.current.logo && assetsCacheRef.current.watermark) {
+      return {
+        logo: assetsCacheRef.current.logo,
+        watermark: assetsCacheRef.current.watermark,
+      };
+    }
+
+    if (assetsCacheRef.current.promise) {
+      return assetsCacheRef.current.promise;
+    }
+
+    assetsCacheRef.current.promise = (async () => {
       try {
-        const response = await fetch(wltLogoSrc);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const blob = await response.blob();
-        const dataUrl = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.onerror = (event) => reject(event?.target?.error ?? new Error("Falha ao ler logo"));
-          reader.readAsDataURL(blob);
+        const logo = await loadImageAsPngDataUrl(wltLogoSrc, "logotipo da WLT").catch((err) => {
+          console.warn("Falha ao carregar o logotipo da WLT para o PDF.", err);
+          return null;
         });
-        if (isMounted && typeof dataUrl === "string") {
-          setLogoDataUrl(dataUrl);
+
+        if (logo) {
+          assetsCacheRef.current.logo = logo;
+          setLogoDataUrl(logo);
+          const watermarkCandidate = await deriveWatermarkFromLogo(logo).catch((err) => {
+            console.warn("Falha ao preparar a marca d'\\u00e1gua da WLT para o PDF.", err);
+            return null;
+          });
+          if (watermarkCandidate) {
+            assetsCacheRef.current.watermark = watermarkCandidate;
+            setWatermarkDataUrl(watermarkCandidate);
+          } else {
+            assetsCacheRef.current.watermark = null;
+            setWatermarkDataUrl(null);
+          }
         }
       } catch (err) {
-        if (isMounted) {
-          console.warn("Falha ao carregar o logotipo da WLT para o PDF.", err);
-        }
+        console.warn("Falha ao carregar recursos de imagem para o PDF.", err);
+      } finally {
+        const result = {
+          logo: assetsCacheRef.current.logo,
+        watermark: assetsCacheRef.current.watermark,
+        };
+        assetsCacheRef.current.promise = null;
+        return result;
       }
-    };
-    loadLogo();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+    })();
+
+      return assetsCacheRef.current.promise;
+  }, [deriveWatermarkFromLogo, loadImageAsPngDataUrl]);
+
+  useEffect(() => {
+    loadAssets();
+  }, [loadAssets]);
 
   const convertCurrency = (amount, fromCurrency, toCurrency) => {
     const numericAmount = Number(amount);
@@ -197,13 +291,82 @@ export default function BudgetGenerator() {
   const addItem = () => setItems((current) => [...current, initialItem()]);
   const removeItem = (index) => setItems((current) => current.filter((_, itemIndex) => itemIndex !== index));
 
-  const buildPdf = () => {
+  const buildPdf = ({ logo, watermark }) => {
     const doc = new jsPDF();
-    if (logoDataUrl) {
+
+    // Moldura externa
+    doc.setLineWidth(0.6);
+    doc.setDrawColor(20, 24, 32);
+    doc.rect(10, 10, 190, 277);
+
+    const resolvedLogo = logo ?? logoDataUrl ?? null;
+    const resolvedWatermark =
+      (watermark && typeof watermark === "object"
+        ? watermark
+        : typeof watermarkDataUrl === "object"
+        ? watermarkDataUrl
+        : null);
+
+    const watermarkSource = resolvedWatermark?.dataUrl ?? null;
+    const pageCenterX = doc.internal.pageSize.getWidth() / 2;
+    const pageCenterY = doc.internal.pageSize.getHeight() / 2;
+
+    if (watermarkSource) {
+      let watermarkAspectRatio = 1;
       try {
-        doc.addImage(logoDataUrl, "PNG", 155, 10, 35, 15);
+        const watermarkProps = doc.getImageProperties(watermarkSource);
+        if (watermarkProps?.width && watermarkProps?.height) {
+          watermarkAspectRatio = watermarkProps.width / watermarkProps.height;
+        }
       } catch (err) {
-        console.warn("Falha ao adicionar logotipo da WLT ao PDF.", err);
+        console.warn("N\\u00e3o foi poss\\u00edvel calcular propor\\u00e7\\u00e3o da marca d'\\u00e1gua da WLT.", err);
+      }
+
+      try {
+        const save = doc.saveGraphicsState?.bind(doc);
+        const restore = doc.restoreGraphicsState?.bind(doc);
+        save?.();
+        if (typeof doc.GState === "function" && typeof doc.setGState === "function") {
+          const watermarkState = doc.GState({ opacity: 0.06 });
+          doc.setGState(watermarkState);
+        }
+        const watermarkWidth = 220;
+        const watermarkHeight = watermarkWidth / watermarkAspectRatio;
+        const watermarkX = pageCenterX - watermarkWidth / 2;
+        const watermarkY = pageCenterY - watermarkHeight / 2 + 20;
+        doc.addImage(
+          watermarkSource,
+          "PNG",
+          watermarkX,
+          watermarkY,
+          watermarkWidth,
+          watermarkHeight,
+        );
+        restore?.();
+      } catch (err) {
+        console.warn("Falha ao adicionar marca d'\\u00e1gua da WLT ao PDF.", err);
+      }
+    }
+
+    if (resolvedLogo) {
+      let logoAspectRatio = 1;
+      try {
+        const logoProps = doc.getImageProperties(resolvedLogo);
+        if (logoProps?.width && logoProps?.height) {
+          logoAspectRatio = logoProps.width / logoProps.height;
+        }
+      } catch (err) {
+        console.warn("N\\u00e3o foi poss\\u00edvel calcular propor\\u00e7\\u00e3o do logotipo da WLT.", err);
+      }
+
+      try {
+        const headerWidth = 38;
+        const headerHeight = headerWidth / logoAspectRatio;
+        const headerX = pageCenterX - headerWidth / 2;
+        const headerY = 18;
+        doc.addImage(resolvedLogo, "PNG", headerX, headerY, headerWidth, headerHeight);
+      } catch (err) {
+        console.warn("Falha ao adicionar logotipo da WLT ao cabe\\u00e7alho do PDF.", err);
       }
     }
     const today = new Date();
@@ -213,38 +376,51 @@ export default function BudgetGenerator() {
 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(16);
-    doc.text("Proposta Comercial", 105, 20, { align: "center" });
+    doc.text("Proposta Comercial", 105, 42, { align: "center" });
 
     doc.setFontSize(11);
     doc.setFont("helvetica", "normal");
-    doc.text(`Data: ${today.toLocaleDateString("pt-BR")}`, 20, 30);
+    let currentY = 52;
+    doc.text(`Data: ${today.toLocaleDateString("pt-BR")}`, 20, currentY);
+    currentY += 6;
     doc.text(
       `Validade: ${
         validity > 0 ? `${validity} dia(s) (${validityDate.toLocaleDateString("pt-BR")})` : "A combinar"
       }`,
       20,
-      36,
+      currentY,
     );
+    currentY += 12;
 
     doc.setFont("helvetica", "bold");
-    doc.text("Cliente", 20, 46);
+    doc.text("Cliente", 20, currentY);
+    currentY += 6;
+
     doc.setFont("helvetica", "normal");
-    doc.text(`Nome: ${clientName || "-"}`, 20, 52);
-    doc.text(`Empresa: ${companyName || "-"}`, 20, 58);
-    doc.text(`Documento: ${companyDocument || "-"}`, 20, 64);
-    doc.text(`Contato: ${clientEmail || "-"} | ${clientPhone || "-"}`, 20, 70);
+    doc.text(`Nome: ${clientName || "-"}`, 20, currentY);
+    currentY += 6;
+    doc.text(`Empresa: ${companyName || "-"}`, 20, currentY);
+    currentY += 6;
+    doc.text(`CNPJ: ${companyDocument || "-"}`, 20, currentY);
+    currentY += 6;
+    doc.text(`Contato: ${clientEmail || "-"} | ${clientPhone || "-"}`, 20, currentY);
+    currentY += 8;
 
     doc.setFont("helvetica", "bold");
-    doc.text(COMPANY_INFO.name, 105, 46);
+    doc.text(COMPANY_INFO.name, 20, currentY);
+    currentY += 6;
     doc.setFont("helvetica", "normal");
-    doc.text(`E-mail: ${COMPANY_INFO.email}`, 105, 52);
-    doc.text(`Telefone: ${COMPANY_INFO.phone}`, 105, 58);
+    doc.text(`E-mail: ${COMPANY_INFO.email}`, 20, currentY);
+    currentY += 6;
+    doc.text(`Telefone: ${COMPANY_INFO.phone}`, 20, currentY);
+    currentY += 10;
 
     doc.setFont("helvetica", "bold");
-    doc.text("Projeto", 20, 84);
+    doc.text("Projeto", 20, currentY);
+    currentY += 6;
     doc.setFont("helvetica", "normal");
 
-    let detailY = 90;
+    let detailY = currentY;
     const drawDetailLine = (label, value) => {
       const content = `${label}: ${value || "-"}`;
       const lines = doc.splitTextToSize(content, 170);
@@ -252,15 +428,15 @@ export default function BudgetGenerator() {
       detailY += lines.length * 6;
     };
 
-    drawDetailLine("Titulo/escopo", projectTitle);
-    drawDetailLine("Condicoes de pagamento", paymentTerms);
+    drawDetailLine("T\\u00edtulo/escopo", projectTitle);
+    drawDetailLine("Condi\\u00e7\\u00f5es de pagamento", paymentTerms);
 
     doc.setFont("helvetica", "bold");
     doc.text("Prazos", 20, detailY);
     detailY += 6;
     doc.setFont("helvetica", "normal");
     drawDetailLine("Desenvolvimento", developmentTime);
-    drawDetailLine("Producao", productionTime);
+    drawDetailLine("Produ\\u00e7\\u00e3o", productionTime);
 
     const tableStartY = Math.max(detailY + 6, 130);
 
@@ -279,42 +455,42 @@ export default function BudgetGenerator() {
       : [["-", "Sem itens informados", "-", "-", "-"]];
 
     autoTable(doc, {
-      head: [["#", "Descricao", "Qtd.", "Valor unitario", "Subtotal"]],
+      head: [["#", "Descri\\u00e7\\u00e3o", "Qtd.", "Valor unit\\u00e1rio", "Subtotal"]],
       body: tableRows,
       startY: tableStartY,
       styles: { fontSize: 9 },
       headStyles: { fillColor: [15, 76, 129], textColor: 255 },
     });
 
-    let currentY = doc.lastAutoTable?.finalY ?? 140;
-    currentY += 10;
+    let summaryY = doc.lastAutoTable?.finalY ?? 140;
+    summaryY += 10;
 
     doc.setFont("helvetica", "bold");
-    doc.text("Resumo financeiro", 20, currentY);
-    currentY += 6;
+    doc.text("Resumo financeiro", 20, summaryY);
+    summaryY += 6;
     doc.setFont("helvetica", "normal");
     Object.entries(totalsByCurrency).forEach(([currency, amount]) => {
-      doc.text(`${currency}: ${formatCurrency(amount, currency)}`, 20, currentY);
-      currentY += 5;
+      doc.text(`${currency}: ${formatCurrency(amount, currency)}`, 20, summaryY);
+      summaryY += 5;
     });
-    doc.text(`Equivalente em BRL: ${formatCurrency(totalBRL, "BRL")}`, 20, currentY);
-    currentY += 8;
+    doc.text(`Equivalente em BRL: ${formatCurrency(totalBRL, "BRL")}`, 20, summaryY);
+    summaryY += 8;
 
     if (notes.trim()) {
       doc.setFont("helvetica", "bold");
-      doc.text("Observações", 20, currentY);
-      currentY += 6;
+      doc.text("Observa\\u00e7\\u00f5es", 20, summaryY);
+      summaryY += 6;
       doc.setFont("helvetica", "normal");
       const splitNotes = doc.splitTextToSize(notes.trim(), 170);
-      doc.text(splitNotes, 20, currentY);
-      currentY += splitNotes.length * 5 + 4;
+      doc.text(splitNotes, 20, summaryY);
+      summaryY += splitNotes.length * 5 + 4;
     }
 
     doc.setFont("helvetica", "italic");
     doc.text(
-      "A equipe WLT Automação agradece a oportunidade. Estamos disponíveis para ajustes ou esclarecimentos.",
+      "A equipe WLT Automa\\u00e7\\u00e3o agradece a oportunidade. Estamos dispon\\u00edveis para ajustes ou esclarecimentos.",
       20,
-      Math.min(currentY + 6, 280),
+      Math.min(summaryY + 6, 280),
     );
 
     return doc;
@@ -351,11 +527,15 @@ export default function BudgetGenerator() {
   const handleGenerate = async (options = { download: true, saveToDocuments: false }) => {
     try {
       if (!clientName.trim()) {
-        notifyError("Informe o nome do cliente antes de gerar o orçamento.");
+        notifyError("Informe o nome do cliente antes de gerar o or\\u00e7amento.");
         return;
       }
 
-      const pdf = buildPdf();
+      const assets = await loadAssets();
+      const pdf = buildPdf({
+        logo: assets?.logo ?? logoDataUrl ?? null,
+        watermark: assets?.watermark ?? watermarkDataUrl ?? null,
+      });
       const safeClientName = clientName.trim() || "cliente";
       const baseFileName = sanitizeStorageFileName(`${safeClientName}-${Date.now()}`);
 
@@ -370,16 +550,16 @@ export default function BudgetGenerator() {
         await savePdfToDocuments(
           pdfBlob,
           storagePath,
-          `Orçamento - ${clientName}`,
+          `Or\\u00e7amento - ${clientName}`,
           projectTitle || `Gerado em ${new Date().toLocaleDateString("pt-BR")}`,
         );
-        notifySuccess("Orçamento salvo em Documentos.");
+        notifySuccess("Or\\u00e7amento salvo em Documentos.");
       } else if (options.saveToDocuments && !canSaveDocuments) {
-        notifyError("Você não possui permissão para salvar orçamentos nos Documentos.");
+        notifyError("Voc\\u00ea n\\u00e3o possui permiss\\u00e3o para salvar or\\u00e7amentos nos Documentos.");
       }
     } catch (err) {
-      console.error("Falha ao gerar orçamento", err);
-      notifyError(err?.message ?? "Não foi possível gerar o PDF.");
+      console.error("Falha ao gerar or\\u00e7amento", err);
+      notifyError(err?.message ?? "N\\u00e3o foi poss\\u00edvel gerar o PDF.");
     } finally {
       setSaving(false);
     }
@@ -393,9 +573,9 @@ export default function BudgetGenerator() {
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
               Comercial
             </p>
-            <h1 className="text-2xl font-bold text-slate-800 md:text-3xl">Gerador de Orçamentos</h1>
+            <h1 className="text-2xl font-bold text-slate-800 md:text-3xl">Gerador de Or\u00e7amentos</h1>
             <p className="mt-2 text-sm text-slate-500">
-              Preencha os dados do cliente, itens e observações. Gere o PDF com o padrão da WLT e, se desejar, salve no
+              Preencha os dados do cliente, itens e observa\u00e7\u00f5es. Gere o PDF com o padr\u00e3o da WLT e, se desejar, salve no
               modulo de Documentos.
             </p>
           </div>
@@ -430,7 +610,7 @@ export default function BudgetGenerator() {
             />
           </label>
           <label className="flex flex-col text-sm font-medium text-slate-600">
-            Documento (CNPJ/CPF)
+            CNPJ (ou CPF)
             <input
               type="text"
               value={companyDocument}
@@ -460,16 +640,16 @@ export default function BudgetGenerator() {
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-800">Projeto e condicoes</h2>
+        <h2 className="text-lg font-semibold text-slate-800">Projeto e condi\u00e7\u00f5es</h2>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <label className="flex flex-col text-sm font-medium text-slate-600">
-            Titulo / escopo do projeto
-            <input
-              type="text"
+            T\u00edtulo / escopo do projeto
+            <textarea
               value={projectTitle}
               onChange={(event) => setProjectTitle(event.target.value)}
-              className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-sky-500/40"
-              placeholder="Ex.: Desenvolvimento de modulo IoT"
+              rows={2}
+              className="mt-1 resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm leading-relaxed focus:border-sky-500 focus:outline-none focus:ring-sky-500/40"
+                placeholder="Ex.: Desenvolvimento de m\u00f3dulo IoT"
             />
           </label>
           <label className="flex flex-col text-sm font-medium text-slate-600">
@@ -484,12 +664,12 @@ export default function BudgetGenerator() {
             />
           </label>
           <label className="flex flex-col text-sm font-medium text-slate-600 md:col-span-2">
-            Condicoes de pagamento
-            <input
-              type="text"
+            Condi\u00e7\u00f5es de pagamento
+            <textarea
               value={paymentTerms}
               onChange={(event) => setPaymentTerms(event.target.value)}
-              className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-sky-500/40"
+              rows={2}
+              className="mt-1 resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm leading-relaxed focus:border-sky-500 focus:outline-none focus:ring-sky-500/40"
             />
           </label>
           <label className="flex flex-col text-sm font-medium text-slate-600">
@@ -503,12 +683,12 @@ export default function BudgetGenerator() {
             />
           </label>
           <label className="flex flex-col text-sm font-medium text-slate-600">
-            Tempo estimado para producao
-            <input
-              type="text"
+            Tempo estimado para produ\u00e7\u00e3o
+            <textarea
               value={productionTime}
               onChange={(event) => setProductionTime(event.target.value)}
-              className="mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sky-500 focus:outline-none focus:ring-sky-500/40"
+              rows={2}
+              className="mt-1 resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm leading-relaxed focus:border-sky-500 focus:outline-none focus:ring-sky-500/40"
               placeholder="Ex.: 10 semanas"
             />
           </label>
@@ -517,7 +697,7 @@ export default function BudgetGenerator() {
 
       <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="text-lg font-semibold text-slate-800">Itens do orçamento</h2>
+          <h2 className="text-lg font-semibold text-slate-800">Itens do or\u00e7amento</h2>
           <button
             type="button"
             onClick={addItem}
@@ -530,12 +710,12 @@ export default function BudgetGenerator() {
           <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-3 py-2 text-left">Descricao</th>
-                <th className="px-3 py-2 text-right">Qtd.</th>
-                <th className="px-3 py-2 text-right">Valor unitario</th>
-                <th className="px-3 py-2 text-left">Moeda</th>
+                <th className="py-2 pl-0 pr-3 text-left">Descri\u00e7\u00e3o</th>
+                <th className="px-3 py-2 text-center">Qtd.</th>
+                <th className="px-3 py-2 text-center">Valor unit\u00e1rio</th>
+                <th className="px-3 py-2 text-center">Moeda</th>
                 <th className="px-3 py-2 text-right">Subtotal</th>
-                <th className="px-3 py-2 text-right">Acoes</th>
+                <th className="px-3 py-2 text-right">A\u00e7\u00f5es</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 bg-white">
@@ -545,7 +725,7 @@ export default function BudgetGenerator() {
                 const subtotal = quantity * unitPrice;
                 return (
                   <tr key={index}>
-                    <td className="px-3 py-2 align-top">
+                    <td className="py-2 pl-0 pr-3 align-top">
                       <textarea
                         rows={2}
                         value={item.description}
@@ -554,31 +734,31 @@ export default function BudgetGenerator() {
                         placeholder="Descreva o item ou servico"
                       />
                     </td>
-                    <td className="px-3 py-2 align-top">
+                    <td className="px-3 py-2 align-top text-center">
                       <input
                         type="number"
                         min="0"
                         step="1"
                         value={item.quantity}
                         onChange={(event) => handleItemChange(index, "quantity", event.target.value)}
-                        className="w-24 rounded-lg border border-slate-300 px-2 py-1 text-right text-sm focus:border-sky-500 focus:outline-none focus:ring-sky-500/40"
+                        className="mx-auto w-24 rounded-lg border border-slate-300 px-2 py-1 text-center text-sm focus:border-sky-500 focus:outline-none focus:ring-sky-500/40"
                       />
                     </td>
-                    <td className="px-3 py-2 align-top">
+                    <td className="px-3 py-2 align-top text-center">
                       <input
                         type="number"
                         min="0"
                         step="0.01"
                         value={item.unitPrice}
                         onChange={(event) => handleItemChange(index, "unitPrice", event.target.value)}
-                        className="w-28 rounded-lg border border-slate-300 px-2 py-1 text-right text-sm focus:border-sky-500 focus:outline-none focus:ring-sky-500/40"
+                        className="mx-auto w-28 rounded-lg border border-slate-300 px-2 py-1 text-center text-sm focus:border-sky-500 focus:outline-none focus:ring-sky-500/40"
                       />
                     </td>
-                    <td className="px-3 py-2 align-top">
+                    <td className="px-3 py-2 align-top text-center">
                       <select
                         value={item.currency}
                         onChange={(event) => handleItemChange(index, "currency", event.target.value)}
-                        className="rounded-lg border border-slate-300 px-2 py-1 text-sm focus:border-sky-500 focus:outline-none focus:ring-sky-500/40"
+                        className="mx-auto rounded-lg border border-slate-300 px-2 py-1 text-sm focus:border-sky-500 focus:outline-none focus:ring-sky-500/40"
                       >
                         {SUPPORTED_CURRENCIES.map((currency) => (
                           <option key={currency} value={currency}>
@@ -609,7 +789,7 @@ export default function BudgetGenerator() {
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-800">Observações adicionais</h2>
+        <h2 className="text-lg font-semibold text-slate-800">Observa\u00e7\u00f5es adicionais</h2>
         <textarea
           rows={4}
           value={notes}
@@ -664,7 +844,7 @@ export default function BudgetGenerator() {
         </div>
         {!canSaveDocuments && (
           <p className="mt-3 text-xs text-amber-600">
-            Você possui acesso apenas para gerar o PDF localmente. Solicite a um administrador para habilitar o salvamento
+            Voc\u00ea possui acesso apenas para gerar o PDF localmente. Solicite a um administrador para habilitar o salvamento
             em Documentos.
           </p>
         )}
@@ -672,3 +852,14 @@ export default function BudgetGenerator() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
+
+
+

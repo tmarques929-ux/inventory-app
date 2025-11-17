@@ -7,6 +7,7 @@ import WltLogoMark from "../components/WltLogoMark";
 import { useNotifications } from "../context/NotificationContext";
 import { usePermissions } from "../context/PermissionsContext";
 import { useAuth } from "../context/AuthContext";
+import { COMPANY_DOCUMENTS_BUCKET } from "../config/storage";
 import {
   dispenserProjectComponents,
   dispenserProjectMetadata,
@@ -74,8 +75,6 @@ const PROJECT_SOFTWARE_BUCKET =
   import.meta.env.VITE_PROJECT_SOFTWARE_BUCKET || "project_software";
 const PROJECT_GERBER_BUCKET =
   import.meta.env.VITE_PROJECT_GERBER_BUCKET || "project_gerbers";
-const COMPANY_DOCUMENTS_BUCKET =
-  import.meta.env.VITE_COMPANY_DOCUMENTS_BUCKET || "company_documents";
 const FILE_SIGNED_URL_TTL = 60 * 10;
 const PROJECT_SYNC_DEBOUNCE_MS = 800;
 const SUPPORTED_CURRENCIES = ["BRL", "USD"];
@@ -121,6 +120,77 @@ const mapReservationRow = (row) => ({
   consumidoEm: row.consumido_em,
   observacoes: row.observacoes ?? null,
 });
+
+const resolveDocumentIcon = (mimeType, fileName = "") => {
+  const normalizedMime = typeof mimeType === "string" ? mimeType.toLowerCase() : "";
+  const lastSegment =
+    typeof fileName === "string" && fileName.includes("/") ? fileName.split("/").pop() : fileName;
+  const extension =
+    typeof lastSegment === "string" && lastSegment.includes(".")
+      ? lastSegment.split(".").pop().toLowerCase()
+      : "";
+
+  const matchExtension = (...values) => values.includes(extension);
+
+  if (normalizedMime.includes("pdf") || matchExtension("pdf")) return "PDF";
+  if (
+    normalizedMime.includes("spreadsheet") ||
+    normalizedMime.includes("excel") ||
+    matchExtension("xls", "xlsx")
+  ) {
+    return "XLS";
+  }
+  if (normalizedMime.includes("csv") || matchExtension("csv")) return "CSV";
+  if (
+    normalizedMime.includes("word") ||
+    normalizedMime.includes("msword") ||
+    matchExtension("doc", "docx")
+  ) {
+    return "DOC";
+  }
+  if (
+    normalizedMime.includes("presentation") ||
+    normalizedMime.includes("powerpoint") ||
+    matchExtension("ppt", "pptx")
+  ) {
+    return "PPT";
+  }
+  if (
+    normalizedMime.startsWith("image/") ||
+    matchExtension("jpg", "jpeg", "png", "gif", "bmp", "svg", "webp", "heic", "tiff")
+  ) {
+    return "IMG";
+  }
+  if (normalizedMime.startsWith("video/") || matchExtension("mp4", "mov", "mkv", "avi")) {
+    return "VID";
+  }
+  if (normalizedMime.startsWith("audio/") || matchExtension("mp3", "wav", "aac", "ogg")) {
+    return "AUD";
+  }
+  if (
+    normalizedMime.includes("zip") ||
+    normalizedMime.includes("compressed") ||
+    matchExtension("zip", "rar", "7z", "gz")
+  ) {
+    return "ZIP";
+  }
+  if (matchExtension("txt")) return "TXT";
+
+  return extension ? extension.slice(0, 4).toUpperCase() : "ARQ";
+};
+
+const formatDateTime = (value) => {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "-";
+  return parsed.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
 
 const normalize = (value) => (value ? value.toString().trim().toLowerCase() : "");
 
@@ -535,6 +605,9 @@ export default function Dashboard({
   );
   const [isEditingProject, setIsEditingProject] = useState(false);
   const [draftProject, setDraftProject] = useState(null);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectStatus, setNewProjectStatus] = useState({ type: null, message: "" });
+  const [isCreatingProjectOption, setIsCreatingProjectOption] = useState(false);
   const editPanelRef = useRef(null);
 
   const selectedProject =
@@ -1431,6 +1504,80 @@ const catalogWithAvailability = useMemo(() => {
             }
           : current,
       );
+    }
+  };
+
+  const handleCreateProjectOption = () => {
+    if (!canManageProjects) {
+      setNewProjectStatus({
+        type: "error",
+        message: "Você não possui permissão para criar projetos.",
+      });
+      return;
+    }
+
+    const trimmedName = newProjectName.trim();
+    if (!trimmedName) {
+      setNewProjectStatus({
+        type: "error",
+        message: "Informe o nome do novo projeto.",
+      });
+      return;
+    }
+
+    const exists = projectOptions.some(
+      (project) => project.name?.trim().toLowerCase() === trimmedName.toLowerCase(),
+    );
+    if (exists) {
+      setNewProjectStatus({
+        type: "error",
+        message: "Já existe um projeto com esse nome.",
+      });
+      return;
+    }
+
+    const buildProjectSlug = (value) =>
+      value
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .toLowerCase() || "projeto";
+
+    const newProjectId = `${buildProjectSlug(trimmedName)}-${Date.now()}`;
+    const metadata = formatProjectMetadata({
+      name: trimmedName,
+      projectValue: { amount: 0, currency: "BRL" },
+    });
+
+    const newProject = {
+      id: newProjectId,
+      name: trimmedName,
+      metadata,
+      components: [],
+    };
+
+    setIsCreatingProjectOption(true);
+    try {
+      setProjectOptions((current) => {
+        const next = [...current, newProject];
+        persistProjectState(next);
+        return next;
+      });
+      setSelectedProjectId(newProjectId);
+      setNewProjectName("");
+      setNewProjectStatus({
+        type: "success",
+        message: "Projeto criado. Clique em Editar projeto para preencher os detalhes.",
+      });
+    } catch (err) {
+      console.error("Erro ao criar novo projeto", err);
+      setNewProjectStatus({
+        type: "error",
+        message: err?.message ?? "Não foi possível criar o projeto.",
+      });
+    } finally {
+      setIsCreatingProjectOption(false);
     }
   };
 
@@ -2434,6 +2581,11 @@ const catalogWithAvailability = useMemo(() => {
     canEditProject: canManageProjects,
     selectedProjectId,
     onSelectProject: setSelectedProjectId,
+    newProjectName,
+    onNewProjectNameChange: setNewProjectName,
+    onCreateProject: handleCreateProjectOption,
+    isCreatingProjectOption,
+    newProjectStatus,
     selectedProject,
     onProjectValueChange: handleProjectValueChange,
     onProjectCurrencyChange: handleProjectCurrencyChange,
@@ -2631,6 +2783,7 @@ const catalogWithAvailability = useMemo(() => {
     </div>
   );
 }
+
 
 
 

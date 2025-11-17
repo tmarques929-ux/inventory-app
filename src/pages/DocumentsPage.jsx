@@ -3,8 +3,8 @@ import { supabase } from "../supabaseClient";
 import { useNotifications } from "../context/NotificationContext";
 import { usePermissions } from "../context/PermissionsContext";
 import { useAuth } from "../context/AuthContext";
+import { COMPANY_DOCUMENTS_BUCKET } from "../config/storage";
 
-const COMPANY_DOCUMENTS_BUCKET = "company_documents";
 const SIGNED_URL_TTL = 60 * 5; // 5 minutes
 const DRIVE_URL = "https://drive.google.com/drive/u/1/folders/1JK5a_cHEmGXBubdnZXR1HVBgwluCKwnV";
 const DEFAULT_CATEGORIES = ["Contrato", "Financeiro", "Fiscal", "Dados bancarios", "Orcamento", "Outros"];
