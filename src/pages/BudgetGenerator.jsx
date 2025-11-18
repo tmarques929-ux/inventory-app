@@ -5,10 +5,11 @@ import wltLogoSrc from "../assets/wlt-logo.png";
 import { supabase } from "../supabaseClient";
 import { useNotifications } from "../context/NotificationContext";
 import { usePermissions } from "../context/PermissionsContext";
+import { useValueVisibility } from "../context/ValueVisibilityContext";
 import { COMPANY_DOCUMENTS_BUCKET } from "../config/storage";
 
 const COMPANY_INFO = {
-  name: "WLT Automa\u00e7\u00e3o",
+  name: "WLT Automação",
   email: "contato@wltautomacao.com.br",
   phone: "(12) 99189-4964",
 };
@@ -16,11 +17,11 @@ const COMPANY_INFO = {
 const DEFAULT_PAYMENT_TERMS = "50% para iniciar e 50% na entrega";
 const DEFAULT_DEVELOPMENT_TIME = "5 semanas";
 const DEFAULT_PRODUCTION_TIME =
-  "10 semanas (inclui compra de componentes, confec\u00e7\u00e3o da PCB e montagem das placas; pode variar em volumes elevados, ex.: 2000 unidades)";
+  "10 semanas (inclui compra de componentes, confecção da PCB e montagem das placas; pode variar em volumes elevados, ex.: 2000 unidades)";
 const DEFAULT_OBSERVATIONS = [
   "Garantia de 6 meses a partir da entrega.",
-  "Inclusos 2 prot\u00f3tipos.",
-  "Ap\u00f3s aprova\u00e7\u00e3o, n\u00e3o ser\u00e3o permitidas altera\u00e7\u00f5es estruturais significativas no projeto.",
+  "Inclusos 2 protótipos.",
+  "Após aprovação, não serão permitidas alterações estruturais significativas no projeto.",
 ].join("\n");
 
 
@@ -40,7 +41,7 @@ const sanitizeStorageFileName = (rawName, fallbackPrefix = "orcamento") => {
   if (!rawName) return `${fallbackPrefix}-${Date.now()}`;
   return rawName
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .replace(/[^a-zA-Z0-9.\-_]/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "")
@@ -64,6 +65,7 @@ const formatCurrency = (value, currency = "BRL") => {
 export default function BudgetGenerator() {
   const { notifyError, notifySuccess } = useNotifications();
   const { hasPermission } = usePermissions();
+  const { maskValue } = useValueVisibility();
   const canSaveDocuments = hasPermission("manageDocuments");
 
   const [clientName, setClientName] = useState("");
@@ -100,7 +102,7 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
         }
       } catch (err) {
         if (isActive) {
-          console.warn("Falha ao atualizar taxa USD/BRL. Usando valor padr\\u00e3o.", err);
+          console.warn("Falha ao atualizar taxa USD/BRL. Usando valor padr\ão.", err);
         }
       }
     };
@@ -128,7 +130,7 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
           canvas.width = width;
           canvas.height = height;
           const context = canvas.getContext("2d");
-          if (!context) throw new Error("Contexto 2D indispon\\u00edvel para convers\\u00e3o de imagem.");
+          if (!context) throw new Error("Contexto 2D indispon\ível para convers\ão de imagem.");
           context.drawImage(image, 0, 0, width, height);
           resolve(canvas.toDataURL("image/png"));
         } catch (err) {
@@ -158,7 +160,7 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
           canvas.width = iconSize;
           canvas.height = iconSize;
           const context = canvas.getContext("2d");
-          if (!context) throw new Error("Contexto 2D indispon\\u00edvel para gerar marca d'\\u00e1gua.");
+          if (!context) throw new Error("Contexto 2D indispon\ível para gerar marca d'\água.");
           context.drawImage(image, 0, 0, iconSize, iconSize, 0, 0, iconSize, iconSize);
           resolve({ dataUrl: canvas.toDataURL("image/png"), aspectRatio: width / height || 1 });
         } catch (err) {
@@ -166,7 +168,7 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
         }
       };
       image.onerror = (error) =>
-        reject(error ?? new Error("Falha ao derivar marca d'\\u00e1gua a partir do logotipo."));
+        reject(error ?? new Error("Falha ao derivar marca d'\água a partir do logotipo."));
       image.src = logoData;
     });
   }, []);
@@ -201,7 +203,7 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
           assetsCacheRef.current.logo = logo;
           setLogoDataUrl(logo);
           const watermarkCandidate = await deriveWatermarkFromLogo(logo).catch((err) => {
-            console.warn("Falha ao preparar a marca d'\\u00e1gua da WLT para o PDF.", err);
+            console.warn("Falha ao preparar a marca d'\água da WLT para o PDF.", err);
             return null;
           });
           if (watermarkCandidate) {
@@ -319,7 +321,7 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
           watermarkAspectRatio = watermarkProps.width / watermarkProps.height;
         }
       } catch (err) {
-        console.warn("N\\u00e3o foi poss\\u00edvel calcular propor\\u00e7\\u00e3o da marca d'\\u00e1gua da WLT.", err);
+        console.warn("N\ão foi poss\ível calcular propor\ç\ão da marca d'\água da WLT.", err);
       }
 
       try {
@@ -344,7 +346,7 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
         );
         restore?.();
       } catch (err) {
-        console.warn("Falha ao adicionar marca d'\\u00e1gua da WLT ao PDF.", err);
+        console.warn("Falha ao adicionar marca d'\água da WLT ao PDF.", err);
       }
     }
 
@@ -356,7 +358,7 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
           logoAspectRatio = logoProps.width / logoProps.height;
         }
       } catch (err) {
-        console.warn("N\\u00e3o foi poss\\u00edvel calcular propor\\u00e7\\u00e3o do logotipo da WLT.", err);
+        console.warn("N\ão foi poss\ível calcular propor\ç\ão do logotipo da WLT.", err);
       }
 
       try {
@@ -366,7 +368,7 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
         const headerY = 18;
         doc.addImage(resolvedLogo, "PNG", headerX, headerY, headerWidth, headerHeight);
       } catch (err) {
-        console.warn("Falha ao adicionar logotipo da WLT ao cabe\\u00e7alho do PDF.", err);
+        console.warn("Falha ao adicionar logotipo da WLT ao cabe\çalho do PDF.", err);
       }
     }
     const today = new Date();
@@ -428,15 +430,15 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
       detailY += lines.length * 6;
     };
 
-    drawDetailLine("T\\u00edtulo/escopo", projectTitle);
-    drawDetailLine("Condi\\u00e7\\u00f5es de pagamento", paymentTerms);
+    drawDetailLine("T\ítulo/escopo", projectTitle);
+    drawDetailLine("Condi\ç\ões de pagamento", paymentTerms);
 
     doc.setFont("helvetica", "bold");
     doc.text("Prazos", 20, detailY);
     detailY += 6;
     doc.setFont("helvetica", "normal");
     drawDetailLine("Desenvolvimento", developmentTime);
-    drawDetailLine("Produ\\u00e7\\u00e3o", productionTime);
+    drawDetailLine("Produ\ç\ão", productionTime);
 
     const tableStartY = Math.max(detailY + 6, 130);
 
@@ -455,7 +457,7 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
       : [["-", "Sem itens informados", "-", "-", "-"]];
 
     autoTable(doc, {
-      head: [["#", "Descri\\u00e7\\u00e3o", "Qtd.", "Valor unit\\u00e1rio", "Subtotal"]],
+      head: [["#", "Descri\ç\ão", "Qtd.", "Valor unit\ário", "Subtotal"]],
       body: tableRows,
       startY: tableStartY,
       styles: { fontSize: 9 },
@@ -478,7 +480,7 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
 
     if (notes.trim()) {
       doc.setFont("helvetica", "bold");
-      doc.text("Observa\\u00e7\\u00f5es", 20, summaryY);
+      doc.text("Observa\ç\ões", 20, summaryY);
       summaryY += 6;
       doc.setFont("helvetica", "normal");
       const splitNotes = doc.splitTextToSize(notes.trim(), 170);
@@ -488,7 +490,7 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
 
     doc.setFont("helvetica", "italic");
     doc.text(
-      "A equipe WLT Automa\\u00e7\\u00e3o agradece a oportunidade. Estamos dispon\\u00edveis para ajustes ou esclarecimentos.",
+      "A equipe WLT Automa\ç\ão agradece a oportunidade. Estamos dispon\íveis para ajustes ou esclarecimentos.",
       20,
       Math.min(summaryY + 6, 280),
     );
@@ -527,7 +529,7 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
   const handleGenerate = async (options = { download: true, saveToDocuments: false }) => {
     try {
       if (!clientName.trim()) {
-        notifyError("Informe o nome do cliente antes de gerar o or\\u00e7amento.");
+        notifyError("Informe o nome do cliente antes de gerar o or\çamento.");
         return;
       }
 
@@ -550,16 +552,16 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
         await savePdfToDocuments(
           pdfBlob,
           storagePath,
-          `Or\\u00e7amento - ${clientName}`,
+          `Or\çamento - ${clientName}`,
           projectTitle || `Gerado em ${new Date().toLocaleDateString("pt-BR")}`,
         );
-        notifySuccess("Or\\u00e7amento salvo em Documentos.");
+        notifySuccess("Or\çamento salvo em Documentos.");
       } else if (options.saveToDocuments && !canSaveDocuments) {
-        notifyError("Voc\\u00ea n\\u00e3o possui permiss\\u00e3o para salvar or\\u00e7amentos nos Documentos.");
+        notifyError("Voc\ê n\ão possui permiss\ão para salvar or\çamentos nos Documentos.");
       }
     } catch (err) {
-      console.error("Falha ao gerar or\\u00e7amento", err);
-      notifyError(err?.message ?? "N\\u00e3o foi poss\\u00edvel gerar o PDF.");
+      console.error("Falha ao gerar or\çamento", err);
+      notifyError(err?.message ?? "N\ão foi poss\ível gerar o PDF.");
     } finally {
       setSaving(false);
     }
@@ -573,9 +575,9 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
             <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
               Comercial
             </p>
-            <h1 className="text-2xl font-bold text-slate-800 md:text-3xl">Gerador de Or\u00e7amentos</h1>
+            <h1 className="text-2xl font-bold text-slate-800 md:text-3xl">Gerador de Orçamentos</h1>
             <p className="mt-2 text-sm text-slate-500">
-              Preencha os dados do cliente, itens e observa\u00e7\u00f5es. Gere o PDF com o padr\u00e3o da WLT e, se desejar, salve no
+              Preencha os dados do cliente, itens e observações. Gere o PDF com o padrão da WLT e, se desejar, salve no
               modulo de Documentos.
             </p>
           </div>
@@ -640,16 +642,16 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-800">Projeto e condi\u00e7\u00f5es</h2>
+        <h2 className="text-lg font-semibold text-slate-800">Projeto e condições</h2>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           <label className="flex flex-col text-sm font-medium text-slate-600">
-            T\u00edtulo / escopo do projeto
+            Título / escopo do projeto
             <textarea
               value={projectTitle}
               onChange={(event) => setProjectTitle(event.target.value)}
               rows={2}
               className="mt-1 resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm leading-relaxed focus:border-sky-500 focus:outline-none focus:ring-sky-500/40"
-                placeholder="Ex.: Desenvolvimento de m\u00f3dulo IoT"
+                placeholder="Ex.: Desenvolvimento de módulo IoT"
             />
           </label>
           <label className="flex flex-col text-sm font-medium text-slate-600">
@@ -664,7 +666,7 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
             />
           </label>
           <label className="flex flex-col text-sm font-medium text-slate-600 md:col-span-2">
-            Condi\u00e7\u00f5es de pagamento
+            Condições de pagamento
             <textarea
               value={paymentTerms}
               onChange={(event) => setPaymentTerms(event.target.value)}
@@ -683,7 +685,7 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
             />
           </label>
           <label className="flex flex-col text-sm font-medium text-slate-600">
-            Tempo estimado para produ\u00e7\u00e3o
+            Tempo estimado para produção
             <textarea
               value={productionTime}
               onChange={(event) => setProductionTime(event.target.value)}
@@ -697,7 +699,7 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
 
       <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="text-lg font-semibold text-slate-800">Itens do or\u00e7amento</h2>
+          <h2 className="text-lg font-semibold text-slate-800">Itens do orçamento</h2>
           <button
             type="button"
             onClick={addItem}
@@ -710,12 +712,12 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
           <table className="min-w-full divide-y divide-slate-200 text-sm">
             <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="py-2 pl-0 pr-3 text-left">Descri\u00e7\u00e3o</th>
+                <th className="py-2 pl-0 pr-3 text-left">Descrição</th>
                 <th className="px-3 py-2 text-center">Qtd.</th>
-                <th className="px-3 py-2 text-center">Valor unit\u00e1rio</th>
+                <th className="px-3 py-2 text-center">Valor unitário</th>
                 <th className="px-3 py-2 text-center">Moeda</th>
                 <th className="px-3 py-2 text-right">Subtotal</th>
-                <th className="px-3 py-2 text-right">A\u00e7\u00f5es</th>
+                <th className="px-3 py-2 text-right">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 bg-white">
@@ -768,7 +770,7 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
                       </select>
                     </td>
                     <td className="px-3 py-2 align-top text-right text-sm text-slate-600">
-                      {formatCurrency(subtotal, item.currency)}
+                      {maskValue(formatCurrency(subtotal, item.currency))}
                     </td>
                     <td className="px-3 py-2 align-top text-right">
                       <button
@@ -789,7 +791,7 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
-        <h2 className="text-lg font-semibold text-slate-800">Observa\u00e7\u00f5es adicionais</h2>
+        <h2 className="text-lg font-semibold text-slate-800">Observações adicionais</h2>
         <textarea
           rows={4}
           value={notes}
@@ -807,14 +809,19 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
                 Total em {currency}
               </p>
-              <p className="mt-1 text-lg font-semibold text-slate-800">{formatCurrency(amount, currency)}</p>
+              <p className="mt-1 text-lg font-semibold text-slate-800">
+                {maskValue(formatCurrency(amount, currency))}
+              </p>
             </div>
           ))}
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Equivalente em BRL</p>
-            <p className="mt-1 text-lg font-semibold text-slate-800">{formatCurrency(totalBRL, "BRL")}</p>
+            <p className="mt-1 text-lg font-semibold text-slate-800">
+              {maskValue(formatCurrency(totalBRL, "BRL"))}
+            </p>
             <p className="text-[11px] text-slate-400">
-              USD para BRL: {exchangeRates.USD ? formatCurrency(exchangeRates.USD, "BRL") : "N/D"} (fonte: AwesomeAPI)
+              USD para BRL:{" "}
+              {exchangeRates.USD ? maskValue(formatCurrency(exchangeRates.USD, "BRL")) : "N/D"} (fonte: AwesomeAPI)
             </p>
           </div>
         </div>
@@ -844,7 +851,7 @@ const assetsCacheRef = useRef({ logo: null, watermark: null, promise: null });
         </div>
         {!canSaveDocuments && (
           <p className="mt-3 text-xs text-amber-600">
-            Voc\u00ea possui acesso apenas para gerar o PDF localmente. Solicite a um administrador para habilitar o salvamento
+            Você possui acesso apenas para gerar o PDF localmente. Solicite a um administrador para habilitar o salvamento
             em Documentos.
           </p>
         )}

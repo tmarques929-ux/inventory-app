@@ -1,3 +1,5 @@
+import { useValueVisibility } from "../../context/ValueVisibilityContext";
+
 export default function ProjectsTab({
   projectOptions,
   selectedProjectId,
@@ -55,6 +57,7 @@ export default function ProjectsTab({
   isFinalizingReservations = false,
   canEditProject = false,
 }) {
+  const { maskValue } = useValueVisibility();
   const metadata = selectedProject?.metadata ?? {};
   const effectiveProjectValueSummary = projectValueSummary ?? {
     amount: 0,
@@ -235,8 +238,8 @@ export default function ProjectsTab({
                   </select>
                 </div>
                 <span className="mt-1 text-[10px] font-medium text-slate-400">
-                  ≈ {formatCurrencyValue(effectiveProjectValueSummary.conversions.BRL, "BRL")} · ≈{" "}
-                  {formatCurrencyValue(effectiveProjectValueSummary.conversions.USD, "USD")}
+                  ≈ {maskValue(formatCurrencyValue(effectiveProjectValueSummary.conversions.BRL, "BRL"))} · ≈{" "}
+                  {maskValue(formatCurrencyValue(effectiveProjectValueSummary.conversions.USD, "USD"))}
                 </span>
               </label>
             </div>

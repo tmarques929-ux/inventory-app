@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { usePermissions } from "../context/PermissionsContext";
+import { useValueVisibility } from "../context/ValueVisibilityContext";
 
 const linkBaseClasses =
   "flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-colors";
@@ -40,6 +41,7 @@ export default function SideNav({ collapsed = false, onToggle }) {
   const [usdError, setUsdError] = useState(null);
   const { hasPermission, role } = usePermissions();
   const isAdmin = hasPermission("manageProjects") && role === "admin";
+  const { areValuesHidden, toggleValues, maskValue } = useValueVisibility();
 
   useEffect(() => {
     let isMounted = true;
@@ -122,6 +124,36 @@ export default function SideNav({ collapsed = false, onToggle }) {
       <nav className="flex-1 space-y-2 px-3 py-4">
         {navItems.map(renderLink)}
       </nav>
+      <div className="px-4 pb-4">
+        <button
+          type="button"
+          onClick={toggleValues}
+          aria-pressed={areValuesHidden}
+          className={`flex w-full items-center justify-center gap-2 rounded border px-3 py-2 text-sm font-semibold transition ${
+            areValuesHidden
+              ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+              : "border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100"
+          }`}
+          title={areValuesHidden ? "Mostrar valores" : "Ocultar valores"}
+        >
+          <span aria-hidden="true">{areValuesHidden ? "🙈" : "👁️"}</span>
+          {!collapsed && (
+            <span>{areValuesHidden ? "Mostrar valores" : "Ocultar valores"}</span>
+          )}
+          {collapsed && (
+            <span className="sr-only">
+              {areValuesHidden ? "Mostrar valores" : "Ocultar valores"}
+            </span>
+          )}
+        </button>
+        {!collapsed && (
+          <p className="mt-2 text-[11px] text-slate-500">
+            {areValuesHidden
+              ? "Os valores monetarios estao ocultos."
+              : "Clique para ocultar todos os valores monetarios da tela."}
+          </p>
+        )}
+      </div>
 
       {user && (
         <div className="border-t border-slate-200 px-4 py-4">
@@ -151,7 +183,7 @@ export default function SideNav({ collapsed = false, onToggle }) {
               >
                 USD hoje:{" "}
                 <span className="font-semibold text-slate-800">
-                  R$ {usdRate.toFixed(2)}
+                  {maskValue(`R$ ${usdRate.toFixed(2)}`)}
                 </span>
                 {!collapsed && usdUpdatedAt && (
                   <span className="block text-[10px] font-normal text-slate-400">

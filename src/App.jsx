@@ -3,6 +3,7 @@ import { useState } from "react";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { PermissionsProvider } from "./context/PermissionsContext";
 import { InventoryProvider } from "./context/InventoryContext";
+import { ValueVisibilityProvider } from "./context/ValueVisibilityContext";
 import SideNav from "./components/SideNav";
 import ScrollToTopButton from "./components/ScrollToTopButton";
 import LoginPage from "./pages/LoginPage";
@@ -40,50 +41,50 @@ function ProtectedLayout() {
 export default function App() {
   return (
     <AuthProvider>
-      <PermissionsProvider>
-        <InventoryProvider>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route element={<ProtectedLayout />}>
-              <Route path="/" element={<Navigate to="/estoque" replace />} />
-              <Route
-                path="/estoque"
-                element={
-                  <Dashboard
-                    allowedTabs={["stock", "history"]}
-                    heroEyebrow="Operacoes"
-                    heroTitle="Estoque e movimentacoes"
-                    heroSubtitle="Acompanhe quantidades disponiveis, ajuste entradas e saidas e consulte o historico completo."
-                  />
-                }
-              />
-              <Route path="/produtos" element={<ProductsPage />} />
-              <Route path="/inventory" element={<InventoryList />} />
-              <Route path="/inventory/new" element={<InventoryForm />} />
-              <Route path="/inventory/:id" element={<InventoryForm />} />
-              <Route path="/pedidos" element={<OrdersPage />} />
-              <Route path="/orcamentos" element={<BudgetGenerator />} />
-              <Route path="/documentos" element={<DocumentsPage />} />
-              <Route path="/contatos" element={<ContactsPage />} />
-              <Route path="/agenda-financeira" element={<FinancialSchedule />} />
-              <Route
-                path="/relatorios"
-                element={
-                  <Dashboard
-                    allowedTabs={["reports"]}
-                    heroEyebrow="Visão gerencial"
-                    heroTitle="Relatórios financeiros e fiscais"
-                    heroSubtitle="Acompanhe recebimentos, pagamentos e o total de NF-es emitidas por mês e por ano."
-                  />
-                }
-              />
-              <Route path="*" element={<Navigate to="/estoque" replace />} />
-            </Route>
-          </Routes>
-        </InventoryProvider>
-      </PermissionsProvider>
+      <ValueVisibilityProvider>
+        <PermissionsProvider>
+          <InventoryProvider>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route element={<ProtectedLayout />}>
+                <Route path="/" element={<Navigate to="/estoque" replace />} />
+                <Route
+                  path="/estoque"
+                  element={
+                    <Dashboard
+                      allowedTabs={["stock", "history"]}
+                      heroEyebrow="Operacoes"
+                      heroTitle="Estoque e movimentacoes"
+                      heroSubtitle="Acompanhe quantidades disponiveis, ajuste entradas e saidas e consulte o historico completo."
+                    />
+                  }
+                />
+                <Route path="/produtos" element={<ProductsPage />} />
+                <Route path="/inventory" element={<InventoryList />} />
+                <Route path="/inventory/new" element={<InventoryForm />} />
+                <Route path="/inventory/:id" element={<InventoryForm />} />
+                <Route path="/pedidos" element={<OrdersPage />} />
+                <Route path="/orcamentos" element={<BudgetGenerator />} />
+                <Route path="/documentos" element={<DocumentsPage />} />
+                <Route path="/contatos" element={<ContactsPage />} />
+                <Route path="/agenda-financeira" element={<FinancialSchedule />} />
+                <Route
+                  path="/relatorios"
+                  element={
+                    <Dashboard
+                      allowedTabs={["reports"]}
+                      heroEyebrow="Visão gerencial"
+                      heroTitle="Relatórios financeiros e fiscais"
+                      heroSubtitle="Acompanhe recebimentos, pagamentos e o total de NF-es emitidas por mês e por ano."
+                    />
+                  }
+                />
+                <Route path="*" element={<Navigate to="/estoque" replace />} />
+              </Route>
+            </Routes>
+          </InventoryProvider>
+        </PermissionsProvider>
+      </ValueVisibilityProvider>
     </AuthProvider>
   );
 }
-
-

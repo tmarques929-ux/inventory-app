@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient";
-import { projectDefinitions } from "../data/dispenserComponents";
+import { useProjectCatalog } from "../hooks/useProjectCatalog";
 import WltLogoMark from "../components/WltLogoMark";
 import { useNotifications } from "../context/NotificationContext";
 
@@ -32,13 +32,14 @@ export default function ContactsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const { notifyWarning, notifyError } = useNotifications();
+  const { projects: projectOptions, loading: projectOptionsLoading } = useProjectCatalog();
 
   const projectMap = useMemo(() => {
-    return projectDefinitions.reduce((acc, project) => {
+    return projectOptions.reduce((acc, project) => {
       acc[project.id] = project;
       return acc;
     }, {});
-  }, []);
+  }, [projectOptions]);
 
   useEffect(() => {
     const loadContacts = async () => {
@@ -301,28 +302,34 @@ export default function ContactsPage() {
               Placas associadas
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
-              {projectDefinitions.map((project) => (
-                <label
-                  key={project.id}
-                  className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
-                    form.projects.includes(project.id)
-                      ? "border-sky-300 bg-sky-50 text-sky-700"
-                      : "border-slate-200 bg-slate-50 text-slate-600"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={form.projects.includes(project.id)}
-                    onChange={() => toggleProject(project.id)}
-                  />
-                  <span>
-                    {project.name}
-                    <span className="block text-xs text-slate-400">
-                      {project.finishedBoardCode}
+              {projectOptionsLoading ? (
+                <p className="text-sm text-slate-500">Carregando projetos...</p>
+              ) : projectOptions.length === 0 ? (
+                <p className="text-sm text-slate-500">Nenhum projeto configurado ainda.</p>
+              ) : (
+                projectOptions.map((project) => (
+                  <label
+                    key={project.id}
+                    className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm ${
+                      form.projects.includes(project.id)
+                        ? "border-sky-300 bg-sky-50 text-sky-700"
+                        : "border-slate-200 bg-slate-50 text-slate-600"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={form.projects.includes(project.id)}
+                      onChange={() => toggleProject(project.id)}
+                    />
+                    <span>
+                      {project.name}
+                      <span className="block text-xs text-slate-400">
+                        {project.finishedBoardCode}
+                      </span>
                     </span>
-                  </span>
-                </label>
-              ))}
+                  </label>
+                ))
+              )}
             </div>
           </div>
           <div className="flex items-end">

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient";
-import { projectDefinitions } from "../data/dispenserComponents";
 import WltLogoMark from "../components/WltLogoMark";
+import { useValueVisibility } from "../context/ValueVisibilityContext";
+import { useProjectCatalog } from "../hooks/useProjectCatalog";
 
 const ORDER_PHASES = [
   {
@@ -131,6 +132,8 @@ const formatDateDisplay = (value) => {
 };
 
 export default function OrdersPage() {
+  const { maskValue } = useValueVisibility();
+  const { projects: catalogProjects } = useProjectCatalog();
   const [form, setForm] = useState(initialForm);
   const [orders, setOrders] = useState([]);
   const [contacts, setContacts] = useState([]);
@@ -409,27 +412,27 @@ export default function OrdersPage() {
   }, []);
 
   const availableProjects = useMemo(() => {
-    if (!selectedContact) return projectDefinitions;
+    if (!selectedContact) return catalogProjects;
     if (!selectedContact.projectIds || selectedContact.projectIds.length === 0)
-      return projectDefinitions;
-    return projectDefinitions.filter((project) =>
+      return catalogProjects;
+    return catalogProjects.filter((project) =>
       selectedContact.projectIds.includes(project.id),
     );
-  }, [selectedContact]);
+  }, [selectedContact, catalogProjects]);
 
   const linkedProjects = useMemo(() => {
     if (!selectedContact || !selectedContact.projectIds?.length) return [];
-    return projectDefinitions.filter((project) =>
+    return catalogProjects.filter((project) =>
       selectedContact.projectIds.includes(project.id),
     );
-  }, [selectedContact]);
+  }, [selectedContact, catalogProjects]);
 
   const getProjectUnitPrice = (projectId) => {
     if (!projectId) return 0;
     const storedValue = projectPrices?.[projectId];
     const storedNumber = Number(storedValue);
     if (Number.isFinite(storedNumber) && storedNumber > 0) return storedNumber;
-    const definition = projectDefinitions.find((project) => project.id === projectId);
+    const definition = catalogProjects.find((project) => project.id === projectId);
     const fallbackNumber = Number(definition?.defaultValue);
     return Number.isFinite(fallbackNumber) && fallbackNumber > 0 ? fallbackNumber : 0;
   };
@@ -438,17 +441,17 @@ export default function OrdersPage() {
     if (!form.projetoId) return null;
     return (
       availableProjects.find((project) => project.id === form.projetoId) ??
-      projectDefinitions.find((project) => project.id === form.projetoId) ??
+      catalogProjects.find((project) => project.id === form.projetoId) ??
       null
     );
-  }, [availableProjects, form.projetoId]);
+  }, [availableProjects, catalogProjects, form.projetoId]);
 
   const projectOptions = useMemo(() => {
     if (!form.projetoId) return availableProjects;
     if (availableProjects.some((project) => project.id === form.projetoId)) return availableProjects;
-    const fallback = projectDefinitions.find((project) => project.id === form.projetoId);
+    const fallback = catalogProjects.find((project) => project.id === form.projetoId);
     return fallback ? [...availableProjects, fallback] : availableProjects;
-  }, [availableProjects, form.projetoId]);
+  }, [availableProjects, catalogProjects, form.projetoId]);
 
   const normalizeDecimal = (value) => {
     if (typeof value === "number") {
@@ -589,7 +592,7 @@ export default function OrdersPage() {
     const contact = selectedContact;
     const project =
       availableProjects.find((item) => item.id === form.projetoId) ??
-      projectDefinitions.find((item) => item.id === form.projetoId) ??
+      catalogProjects.find((item) => item.id === form.projetoId) ??
       availableProjects[0];
 
     if (!project) {
@@ -905,7 +908,7 @@ export default function OrdersPage() {
                     </span>
                     <span className="ml-2 text-slate-500">{project.name}</span>
                     <span className="ml-2 text-slate-400">
-                      {formatCurrency(getProjectUnitPrice(project.id))}
+                      {maskValue(formatCurrency(getProjectUnitPrice(project.id)))}
                     </span>
                   </li>
                 ))}
@@ -951,7 +954,7 @@ export default function OrdersPage() {
             Valor unitario (R$)
             <input
               type="text"
-              value={formatCurrency(unitPrice)}
+              value={maskValue(formatCurrency(unitPrice))}
               readOnly
               className="mt-1 rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-right font-semibold text-slate-700 focus:outline-none"
             />
@@ -974,7 +977,7 @@ export default function OrdersPage() {
             Valor base (R$)
             <input
               type="text"
-              value={formatCurrency(basePrice)}
+              value={maskValue(formatCurrency(basePrice))}
               readOnly
               className="mt-1 rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-right font-semibold text-slate-700 focus:outline-none"
             />
@@ -994,7 +997,7 @@ export default function OrdersPage() {
             Valor final (R$)
             <input
               type="text"
-              value={formatCurrency(finalPrice)}
+              value={maskValue(formatCurrency(finalPrice))}
               readOnly
               className="mt-1 rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm text-right font-semibold text-slate-700 focus:outline-none"
             />
@@ -1194,7 +1197,7 @@ export default function OrdersPage() {
                         {Number(entry.quantidade ?? 0).toLocaleString("pt-BR")}
                       </td>
                       <td className="px-4 py-3 text-right text-slate-600">
-                        {formatCurrency(baseValue)}
+                        {maskValue(formatCurrency(baseValue))}
                       </td>
                       <td
                         className={`px-4 py-3 text-right ${
@@ -1205,10 +1208,10 @@ export default function OrdersPage() {
                             : "text-slate-500"
                         }`}
                       >
-                        {adjustmentValue === 0 ? "-" : formatCurrency(adjustmentValue)}
+                        {adjustmentValue === 0 ? "-" : maskValue(formatCurrency(adjustmentValue))}
                       </td>
                       <td className="px-4 py-3 text-right font-semibold text-slate-700">
-                        {formatCurrency(finalValue)}
+                        {maskValue(formatCurrency(finalValue))}
                       </td>
                       <td className="px-4 py-3 text-slate-600">
                         <label htmlFor={`order-phase-${entry.id}`} className="sr-only">

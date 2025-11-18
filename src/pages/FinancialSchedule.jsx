@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabaseClient";
 import WltLogoMark from "../components/WltLogoMark";
+import { useValueVisibility } from "../context/ValueVisibilityContext";
 
 const buildParcelArray = (count) =>
   Array.from({ length: count }, (_, index) => ({
@@ -170,6 +171,7 @@ const distributeValues = (total, count) => {
 };
 
 export default function FinancialSchedule() {
+  const { maskValue } = useValueVisibility();
   const [form, setForm] = useState(initialForm);
   const [entries, setEntries] = useState([]);
   const [contacts, setContacts] = useState([]);
@@ -732,7 +734,7 @@ export default function FinancialSchedule() {
                   {upcomingNames?.displayCompany || upcomingNames?.displayContact}
                 </p>
                 <p className="text-xs text-slate-500">
-                  {formatCurrency(upcomingHighlight.valor_parcela ?? upcomingHighlight.valor)} - Parcela{" "}
+                  {maskValue(formatCurrency(upcomingHighlight.valor_parcela ?? upcomingHighlight.valor))} - Parcela{" "}
                   {upcomingHighlight.parcela_numero ?? 1}/{upcomingHighlight.parcelas_total ?? 1} -{" "}
                   Status: {upcomingHighlight.status || "pendente"}
                 </p>
@@ -1054,30 +1056,30 @@ export default function FinancialSchedule() {
                     <div className="flex items-center justify-between">
                       <dt>Recebido</dt>
                       <dd className="font-semibold text-emerald-600">
-                        {formatCurrency(balance.totalReceived)}
+                        {maskValue(formatCurrency(balance.totalReceived))}
                       </dd>
                     </div>
                     {balance.totalPendingReceber > 0 && (
                       <div className="flex items-center justify-between text-xs text-slate-500">
                         <dt>Pendente receber</dt>
-                        <dd>{formatCurrency(balance.totalPendingReceber)}</dd>
+                        <dd>{maskValue(formatCurrency(balance.totalPendingReceber))}</dd>
                       </div>
                     )}
                     <div className="flex items-center justify-between">
                       <dt>Pago</dt>
                       <dd className="font-semibold text-rose-600">
-                        {formatCurrency(balance.totalPaid)}
+                        {maskValue(formatCurrency(balance.totalPaid))}
                       </dd>
                     </div>
                     {balance.totalPendingPagar > 0 && (
                       <div className="flex items-center justify-between text-xs text-slate-500">
                         <dt>Pendente pagar</dt>
-                        <dd>{formatCurrency(balance.totalPendingPagar)}</dd>
+                        <dd>{maskValue(formatCurrency(balance.totalPendingPagar))}</dd>
                       </div>
                     )}
                   </dl>
                   <p className={`mt-3 text-xs font-semibold uppercase ${netClass}`}>
-                    Saldo: {formatCurrency(balance.netBalance)}
+                    Saldo: {maskValue(formatCurrency(balance.netBalance))}
                   </p>
                 </div>
               );
@@ -1165,7 +1167,7 @@ export default function FinancialSchedule() {
                         <p>{entry.forma_pagamento || "-"}</p>
                         {adiantamentoValue !== null && (
                           <p className="text-xs text-slate-500">
-                            Adiantamento: {formatCurrency(adiantamentoValue)}
+                            Adiantamento: {maskValue(formatCurrency(adiantamentoValue))}
                             {entry.adiantamento_data
                               ? ` (${formatDateDisplay(entry.adiantamento_data)})`
                               : ""}
@@ -1173,7 +1175,7 @@ export default function FinancialSchedule() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-right font-semibold text-slate-700">
-                        {formatCurrency(highlightValue)}
+                        {maskValue(formatCurrency(highlightValue))}
                       </td>
                       <td className="px-4 py-3">
                         <select

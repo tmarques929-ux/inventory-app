@@ -2,6 +2,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { supabase } from "../../supabaseClient";
+import { useValueVisibility } from "../../context/ValueVisibilityContext";
 
 const formatCurrency = (value) =>
   new Intl.NumberFormat("pt-BR", {
@@ -210,6 +211,7 @@ export default function ReportsTab({
   selectedProject = null,
   items = [],
 }) {
+  const { maskValue } = useValueVisibility();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [financialEntries, setFinancialEntries] = useState([]);
@@ -1004,7 +1006,7 @@ export default function ReportsTab({
                       Total estimado
                     </td>
                     <td className="px-3 py-2 text-right text-slate-700">
-                      {formatCurrency(poTotalEstimated)}
+                      {maskValue(formatCurrency(poTotalEstimated))}
                     </td>
                     <td colSpan={2} />
                   </tr>
@@ -1203,7 +1205,7 @@ export default function ReportsTab({
                   <div className="text-right text-sm text-slate-600">
                     <p>Total estimado</p>
                     <p className="text-lg font-semibold text-slate-800">
-                      {order.totalEstimado ? formatCurrency(order.totalEstimado) : "-"}
+                      {order.totalEstimado ? maskValue(formatCurrency(order.totalEstimado)) : "-"}
                     </p>
                     <div className="mt-3 flex flex-wrap justify-end gap-2 text-xs">
                       <button
@@ -1248,7 +1250,7 @@ export default function ReportsTab({
                           </td>
                           <td className="px-3 py-2 text-right text-slate-700">
                             {item.precoUnitario !== null
-                              ? formatCurrency(item.precoUnitario)
+                              ? maskValue(formatCurrency(item.precoUnitario))
                               : "-"}
                           </td>
                           <td className="px-3 py-2 text-right text-slate-700">
@@ -1341,7 +1343,7 @@ export default function ReportsTab({
                       textAnchor="middle"
                       fill="#1d4ed8"
                     >
-                      {formatCurrency(point.preco)}
+                      {maskValue(formatCurrency(point.preco))}
                     </text>
                   </g>
                 ))}
@@ -1352,7 +1354,7 @@ export default function ReportsTab({
                   textAnchor="end"
                   fill="#475569"
                 >
-                  {formatCurrency(priceChart.maxPrice)}
+                  {maskValue(formatCurrency(priceChart.maxPrice))}
                 </text>
                 <text
                   x={priceChart.paddingX - 8}
@@ -1361,7 +1363,7 @@ export default function ReportsTab({
                   textAnchor="end"
                   fill="#475569"
                 >
-                  {formatCurrency(priceChart.minPrice)}
+                  {maskValue(formatCurrency(priceChart.minPrice))}
                 </text>
                 {priceChart.points.map((point) => (
                   <text
@@ -1400,7 +1402,7 @@ export default function ReportsTab({
                           {formatDateTime(entry.createdAt)}
                         </td>
                         <td className="px-3 py-2 text-slate-700">
-                          {formatCurrency(entry.preco)}
+                          {maskValue(formatCurrency(entry.preco))}
                         </td>
                         <td className="px-3 py-2 text-slate-500">{entry.moeda}</td>
                         <td className="px-3 py-2 text-slate-500">
@@ -1423,7 +1425,7 @@ export default function ReportsTab({
               Recebido no mês
             </p>
             <p className="mt-2 text-lg font-semibold text-emerald-600">
-              {formatCurrency(summaries.highlights.currentMonth.received)}
+              {maskValue(formatCurrency(summaries.highlights.currentMonth.received))}
             </p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
@@ -1431,7 +1433,7 @@ export default function ReportsTab({
               Pago no mês
             </p>
             <p className="mt-2 text-lg font-semibold text-rose-600">
-              {formatCurrency(summaries.highlights.currentMonth.paid)}
+              {maskValue(formatCurrency(summaries.highlights.currentMonth.paid))}
             </p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
@@ -1445,7 +1447,7 @@ export default function ReportsTab({
                   : "text-rose-600"
               }`}
             >
-              {formatCurrency(summaries.highlights.currentMonth.balance)}
+              {maskValue(formatCurrency(summaries.highlights.currentMonth.balance))}
             </p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
@@ -1453,7 +1455,7 @@ export default function ReportsTab({
               NF-es no mês
             </p>
             <p className="mt-2 text-lg font-semibold text-slate-700">
-              {formatCurrency(summaries.highlights.currentMonth.nfe)}
+              {maskValue(formatCurrency(summaries.highlights.currentMonth.nfe))}
             </p>
           </div>
         </div>
@@ -1483,17 +1485,17 @@ export default function ReportsTab({
                   <tr key={row.key}>
                     <td className="px-4 py-3 text-slate-600 capitalize">{row.label}</td>
                     <td className="px-4 py-3 text-right font-medium text-emerald-600">
-                      {formatCurrency(row.received)}
+                      {maskValue(formatCurrency(row.received))}
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-rose-600">
-                      {formatCurrency(row.paid)}
+                      {maskValue(formatCurrency(row.paid))}
                     </td>
                     <td
                       className={`px-4 py-3 text-right font-semibold ${
                         row.balance >= 0 ? "text-emerald-600" : "text-rose-600"
                       }`}
                     >
-                      {formatCurrency(row.balance)}
+                      {maskValue(formatCurrency(row.balance))}
                     </td>
                   </tr>
                 ))}
@@ -1527,17 +1529,17 @@ export default function ReportsTab({
                   <tr key={row.key}>
                     <td className="px-4 py-3 text-slate-600">{row.label}</td>
                     <td className="px-4 py-3 text-right font-medium text-emerald-600">
-                      {formatCurrency(row.received)}
+                      {maskValue(formatCurrency(row.received))}
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-rose-600">
-                      {formatCurrency(row.paid)}
+                      {maskValue(formatCurrency(row.paid))}
                     </td>
                     <td
                       className={`px-4 py-3 text-right font-semibold ${
                         row.balance >= 0 ? "text-emerald-600" : "text-rose-600"
                       }`}
                     >
-                      {formatCurrency(row.balance)}
+                      {maskValue(formatCurrency(row.balance))}
                     </td>
                   </tr>
                 ))}
@@ -1569,7 +1571,7 @@ export default function ReportsTab({
                     <tr key={row.key}>
                       <td className="px-4 py-3 text-slate-600 capitalize">{row.label}</td>
                       <td className="px-4 py-3 text-right font-semibold text-slate-700">
-                        {formatCurrency(row.total)}
+                        {maskValue(formatCurrency(row.total))}
                       </td>
                     </tr>
                   ))}
@@ -1589,7 +1591,7 @@ export default function ReportsTab({
                     <tr key={row.key}>
                       <td className="px-4 py-3 text-slate-600">{row.label}</td>
                       <td className="px-4 py-3 text-right font-semibold text-slate-700">
-                        {formatCurrency(row.total)}
+                        {maskValue(formatCurrency(row.total))}
                       </td>
                     </tr>
                   ))}
